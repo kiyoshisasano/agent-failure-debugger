@@ -34,6 +34,18 @@ and what caused it upstream?
 
 ---
 
+## Prerequisite: Matcher
+
+This tool expects matcher output as input.
+
+The matcher is responsible for:
+
+log → signals → failure detection
+
+This repository does not include the matcher implementation.
+
+---
+
 ## Output Value
 
 Transforms failure detection into causal understanding.
