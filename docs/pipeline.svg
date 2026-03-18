@@ -1,0 +1,86 @@
+<svg width="900" height="540" viewBox="0 0 900 540" xmlns="http://www.w3.org/2000/svg">
+
+  <style>
+    .box { fill: #f5f5f5; stroke: #333; stroke-width: 1.5; rx: 10; }
+    .matcher { fill: #e3f2fd; }
+    .graph { fill: #ede7f6; }
+    .debugger { fill: #e8f5e9; }
+    .output { fill: #fafafa; }
+    .title { font: bold 18px sans-serif; }
+    .text { font: 13px sans-serif; }
+    .small { font: 12px sans-serif; fill: #444; }
+    .arrow { stroke: #333; stroke-width: 1.5; marker-end: url(#arrowhead); }
+  </style>
+
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7"
+            refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="450" y="30" text-anchor="middle" class="title">
+    Failure Diagnosis → Causal Explanation Pipeline
+  </text>
+
+  <!-- LOG -->
+  <rect x="50" y="80" width="160" height="60" class="box"/>
+  <text x="130" y="110" text-anchor="middle" class="text">LOG</text>
+  <text x="130" y="130" text-anchor="middle" class="small">telemetry</text>
+
+  <!-- MATCHER -->
+  <rect x="260" y="70" width="200" height="80" class="box matcher"/>
+  <text x="360" y="100" text-anchor="middle" class="text">MATCHER</text>
+  <text x="360" y="120" text-anchor="middle" class="small">signals → failures</text>
+
+  <!-- GRAPH -->
+  <rect x="510" y="50" width="260" height="120" class="box graph"/>
+  <text x="640" y="80" text-anchor="middle" class="text">FAILURE GRAPH (Atlas)</text>
+
+  <text x="640" y="110" text-anchor="middle" class="small">
+    semantic_cache_intent_bleeding
+  </text>
+  <text x="640" y="130" text-anchor="middle" class="small">↓ induces</text>
+  <text x="640" y="150" text-anchor="middle" class="small">
+    rag_retrieval_drift
+  </text>
+
+  <!-- DEBUGGER -->
+  <rect x="260" y="230" width="200" height="80" class="box debugger"/>
+  <text x="360" y="260" text-anchor="middle" class="text">DEBUGGER</text>
+  <text x="360" y="280" text-anchor="middle" class="small">
+    causal explanation
+  </text>
+
+  <!-- OUTPUT (FIXED HEIGHT) -->
+  <rect x="510" y="220" width="260" height="160" class="box output"/>
+
+  <text x="640" y="250" text-anchor="middle" class="text">OUTPUT</text>
+
+  <text x="640" y="280" text-anchor="middle" class="small">
+    Root cause:
+  </text>
+  <text x="640" y="300" text-anchor="middle" class="small">
+    semantic_cache_intent_bleeding
+  </text>
+
+  <text x="640" y="330" text-anchor="middle" class="small">
+    Causes:
+  </text>
+  <text x="640" y="350" text-anchor="middle" class="small">
+    → rag_retrieval_drift
+  </text>
+
+  <!-- Arrows -->
+  <line x1="210" y1="110" x2="260" y2="110" class="arrow"/>
+  <line x1="460" y1="110" x2="510" y2="110" class="arrow"/>
+  <line x1="640" y1="170" x2="360" y2="230" class="arrow"/>
+  <line x1="460" y1="270" x2="510" y2="270" class="arrow"/>
+
+  <!-- Footer -->
+  <text x="450" y="510" text-anchor="middle" class="small">
+    Detection identifies failures. The graph explains why they occur.
+  </text>
+
+</svg>

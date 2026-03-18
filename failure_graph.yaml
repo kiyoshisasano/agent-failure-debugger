@@ -1,0 +1,74 @@
+version: 1
+
+contracts:
+  node_id_matches_failure_id: true
+  condition_namespace: signal_contract_shared
+
+nodes:
+
+  - id: premature_model_commitment
+    role: root_cause
+    layer: reasoning
+    status: planned
+    note: >
+      Conceptual upstream cause retained from earlier graph.
+      Not yet diagnosable with current telemetry.
+
+  - id: semantic_cache_intent_bleeding
+    role: initiating_failure
+    layer: system
+    status: defined
+    note: >
+      Observable initiating failure in the current telemetry surface.
+      Not guaranteed to be the ultimate root cause.
+
+  - id: rag_retrieval_drift
+    role: propagated_failure
+    layer: retrieval
+    status: defined
+
+  - id: incorrect_output
+    role: outcome
+    layer: output
+    status: planned
+
+
+edges:
+
+  - id: E_pmc_to_retrieval_drift
+    from: premature_model_commitment
+    to: rag_retrieval_drift
+    relation: predisposes
+    semantics:
+      description: >
+        Early hypothesis fixation can bias retrieval behavior and lead to drift.
+      conditions:
+        - retrieval_query_locked_to_early_hypothesis
+      note: >
+        Conceptual edge retained from earlier graph.
+        Not currently diagnosable with matcher.
+
+  - id: E_cache_bleeding_to_retrieval_drift
+    from: semantic_cache_intent_bleeding
+    to: rag_retrieval_drift
+    relation: induces
+    semantics:
+      description: >
+        Cache reuse with intent mismatch leads to degraded retrieval behavior.
+      conditions:
+        - cache_query_intent_mismatch
+        - retrieval_skipped_after_cache_hit
+      note: >
+        Observable edge supported by current telemetry and co-diagnosis.
+
+  - id: E_retrieval_drift_to_output
+    from: rag_retrieval_drift
+    to: incorrect_output
+    relation: propagates_to
+    semantics:
+      description: >
+        Retrieval drift leads to incorrect or misaligned output.
+      conditions:
+        - retrieved_docs_low_intent_alignment
+      note: >
+        Outcome node not yet diagnosable.
