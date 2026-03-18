@@ -152,6 +152,5 @@ Maps directly to PLD phases:
 
 Detection tells you what failed.
 Debugger tells you why it failed.
-````
 
 ---
