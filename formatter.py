@@ -2,9 +2,12 @@
 formatter.py
 
 build_explanation():
-  - Uses root_ranking to select the primary path (top-ranked root, longest path)
+  - Uses path scoring to select the primary path
   - Remaining multi-hop paths become alternative contributing paths
   - Falls back to "No causal relationships detected." if no multi-hop path exists
+
+Path scoring:
+  path_score = 0.5 * avg_confidence + 0.3 * normalized_length + 0.2 * root_rank_score
 
 Output fields:
   primary_path       : the single most important causal chain
@@ -20,25 +23,37 @@ RELATION_TEXT = {
 }
 
 
+def _score_path(path: list, conf_map: dict, root_scores: dict,
+                max_length: int) -> float:
+    """
+    Score a path for primary selection:
+      0.5 * avg_confidence + 0.3 * normalized_length + 0.2 * root_rank_score
+    """
+    avg_conf = sum(conf_map.get(n, 0.0) for n in path) / len(path)
+    norm_len = len(path) / max_length if max_length > 0 else 0.0
+    root_score = root_scores.get(path[0], 0.0)
+
+    return 0.5 * avg_conf + 0.3 * norm_len + 0.2 * root_score
+
+
 def select_primary_path(result: dict) -> list | None:
     """
-    Return the primary path to narrate:
-    - If root_ranking exists, prefer the longest path whose root is top-ranked.
-    - Fallback: longest multi-hop path overall.
-    - Returns None if no multi-hop path exists.
+    Return the primary path using path scoring.
+    Falls back to None if no multi-hop path exists.
     """
     multi_hop = [p for p in result.get("paths", []) if len(p) >= 2]
     if not multi_hop:
         return None
 
-    ranking = result.get("root_ranking", [])
-    if ranking:
-        top_root = ranking[0]["id"]
-        from_top = [p for p in multi_hop if p[0] == top_root]
-        if from_top:
-            return max(from_top, key=len)
+    conf_map = {f["id"]: f["confidence"] for f in result.get("failures", [])}
+    root_scores = {
+        r["id"]: r["score"]
+        for r in result.get("root_ranking", [])
+    }
+    max_length = max(len(p) for p in multi_hop)
 
-    return max(multi_hop, key=len)
+    return max(multi_hop,
+               key=lambda p: _score_path(p, conf_map, root_scores, max_length))
 
 
 def select_alternative_paths(result: dict, primary: list | None) -> list:
