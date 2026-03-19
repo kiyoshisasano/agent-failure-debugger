@@ -41,6 +41,10 @@ def _select_fix_candidates(decision_output: dict,
             suppressed.add(s)
 
     fix_eff = (policies or {}).get("fix_effectiveness", {})
+    _scale_eff = None
+    if fix_eff:
+        from policy_loader import scale_effectiveness
+        _scale_eff = scale_effectiveness
 
     high_candidates = []
     medium_candidates = []
@@ -72,22 +76,24 @@ def _select_fix_candidates(decision_output: dict,
         priority_score = action["priority_score"]
         if fix_eff:
             eff_entries = fix_eff.get(fid, {})
-            best_eff = 0.0
+            best_eff_raw = 0.0
             if eff_entries:
-                best_eff = max(
+                best_eff_raw = max(
                     e.get("effectiveness_score", 0.0)
                     for e in eff_entries.values()
                 )
-            final_score = 0.6 * priority_score + 0.4 * best_eff
+            # Phase 20 ①: scale for ranking spread
+            best_eff_scaled = _scale_eff(best_eff_raw) if _scale_eff else best_eff_raw
+            final_score = 0.6 * priority_score + 0.4 * best_eff_scaled
         else:
             final_score = priority_score
-            best_eff = 0.0
+            best_eff_raw = 0.0
 
         entry = {
             "failure": fid,
             "priority_score": priority_score,
             "final_fix_score": round(final_score, 4),
-            "effectiveness_score": best_eff,
+            "effectiveness_score": best_eff_raw,
             "template": template,
             "effective_safety": effective_safety,
             "safety_promoted": effective_safety != template["safety"],
