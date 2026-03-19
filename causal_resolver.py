@@ -3,28 +3,50 @@ causal_resolver.py
 Resolves causal relationships between active (diagnosed) failures.
 
 Pipeline:
-  matcher output → normalize → active_ids → root_candidates + causal_links + enriched_failures
+  matcher output → normalize → active_ids → root_candidates + causal_links + enriched_failures + paths
 """
 
 
 def normalize(matcher_output: list) -> list:
-    """
-    Convert matcher raw output to debugger internal format.
-    Filters out failures where diagnosed is False.
-    """
     normalized = []
-
     for f in matcher_output:
         if not f.get("diagnosed", False):
             continue
-
         normalized.append({
             "id": f["failure_id"],
             "confidence": f["confidence"],
             "signals": f.get("signals", {}),
         })
-
     return normalized
+
+
+def build_active_forward(graph: dict, active_ids: set) -> dict:
+    forward = {}
+    for e in graph["edges"]:
+        if e["from"] in active_ids and e["to"] in active_ids:
+            forward.setdefault(e["from"], []).append(e["to"])
+    return forward
+
+
+def collect_paths(forward: dict, roots: list) -> list:
+    paths = []
+
+    def dfs(node, path):
+        next_nodes = forward.get(node, [])
+        if not next_nodes:
+            paths.append(path[:])
+            return
+        for nxt in next_nodes:
+            if nxt in path:  # cycle guard
+                continue
+            path.append(nxt)
+            dfs(nxt, path)
+            path.pop()
+
+    for root in roots:
+        dfs(root, [root])
+
+    return paths
 
 
 def resolve(graph: dict, matcher_output: list) -> dict:
@@ -66,8 +88,13 @@ def resolve(graph: dict, matcher_output: list) -> dict:
             item["caused_by"] = causes
         enriched.append(item)
 
+    # Multi-hop paths
+    active_forward = build_active_forward(graph, active_ids)
+    paths = collect_paths(active_forward, roots)
+
     return {
         "roots": roots,
         "failures": enriched,
         "links": links,
+        "paths": paths,
     }
