@@ -1,0 +1,170 @@
+{
+  "root_candidates": [
+    "premature_model_commitment",
+    "context_truncation_loss"
+  ],
+  "root_ranking": [
+    {
+      "id": "premature_model_commitment",
+      "score": 0.85
+    },
+    {
+      "id": "context_truncation_loss",
+      "score": 0.625
+    }
+  ],
+  "failures": [
+    {
+      "id": "premature_model_commitment",
+      "confidence": 0.7,
+      "signals": {
+        "ambiguity_without_clarification": true,
+        "assumption_persistence_after_correction": true
+      }
+    },
+    {
+      "id": "semantic_cache_intent_bleeding",
+      "confidence": 0.9,
+      "signals": {
+        "cache_query_intent_mismatch": true,
+        "retrieval_skipped_after_cache_hit": true,
+        "retrieved_docs_low_intent_alignment": true
+      },
+      "caused_by": [
+        "premature_model_commitment"
+      ]
+    },
+    {
+      "id": "prompt_injection_via_retrieval",
+      "confidence": 0.7,
+      "signals": {
+        "retrieved_context_instruction_override": true,
+        "retrieved_context_adversarial_pattern": true
+      },
+      "caused_by": [
+        "premature_model_commitment"
+      ]
+    },
+    {
+      "id": "context_truncation_loss",
+      "confidence": 0.7,
+      "signals": {
+        "context_truncated_critical_info": true,
+        "retrieval_missing_expected_content": true
+      }
+    },
+    {
+      "id": "rag_retrieval_drift",
+      "confidence": 0.6,
+      "signals": {
+        "retrieved_docs_low_intent_alignment": true,
+        "retrieval_skipped_after_cache_hit": true
+      },
+      "caused_by": [
+        "semantic_cache_intent_bleeding",
+        "prompt_injection_via_retrieval",
+        "context_truncation_loss"
+      ]
+    }
+  ],
+  "causal_links": [
+    {
+      "from": "premature_model_commitment",
+      "to": "semantic_cache_intent_bleeding",
+      "relation": "predisposes",
+      "description": "Early hypothesis fixation increases the probability of cache misuse: a committed interpretation accepts high-similarity cache hits that conflict with the actual user intent."
+    },
+    {
+      "from": "semantic_cache_intent_bleeding",
+      "to": "rag_retrieval_drift",
+      "relation": "induces",
+      "description": "Cache reuse with intent mismatch leads to degraded retrieval behavior."
+    },
+    {
+      "from": "premature_model_commitment",
+      "to": "prompt_injection_via_retrieval",
+      "relation": "predisposes",
+      "description": "Early commitment without critical evaluation increases susceptibility to adversarial or misleading retrieved content."
+    },
+    {
+      "from": "prompt_injection_via_retrieval",
+      "to": "rag_retrieval_drift",
+      "relation": "induces",
+      "description": "Adversarial or instruction-altering retrieved content distorts retrieval relevance and leads to degraded retrieval behavior."
+    },
+    {
+      "from": "context_truncation_loss",
+      "to": "rag_retrieval_drift",
+      "relation": "induces",
+      "description": "Context truncation removes critical information from the retrieval context, causing downstream retrieval to miss relevant content."
+    }
+  ],
+  "causal_paths": [
+    [
+      "premature_model_commitment",
+      "semantic_cache_intent_bleeding",
+      "rag_retrieval_drift"
+    ],
+    [
+      "premature_model_commitment",
+      "prompt_injection_via_retrieval",
+      "rag_retrieval_drift"
+    ],
+    [
+      "context_truncation_loss",
+      "rag_retrieval_drift"
+    ]
+  ],
+  "primary_path": [
+    "premature_model_commitment",
+    "semantic_cache_intent_bleeding",
+    "rag_retrieval_drift"
+  ],
+  "alternative_paths": [
+    [
+      "premature_model_commitment",
+      "prompt_injection_via_retrieval",
+      "rag_retrieval_drift"
+    ],
+    [
+      "context_truncation_loss",
+      "rag_retrieval_drift"
+    ]
+  ],
+  "conflicts": [
+    {
+      "group": "retrieval_root_conflict",
+      "winner": "semantic_cache_intent_bleeding",
+      "suppressed": [
+        "prompt_injection_via_retrieval",
+        "context_truncation_loss"
+      ],
+      "mode": "soft"
+    }
+  ],
+  "explanation": "Primary causal path: premature_model_commitment predisposed semantic_cache_intent_bleeding, which induced rag_retrieval_drift\nAlternative competing path (lower confidence): premature_model_commitment predisposed prompt_injection_via_retrieval, which induced rag_retrieval_drift\nAlternative competing path (lower confidence): context_truncation_loss induced rag_retrieval_drift",
+  "evidence": [
+    {
+      "failure": "premature_model_commitment",
+      "signals": [
+        "ambiguity_without_clarification",
+        "assumption_persistence_after_correction"
+      ]
+    },
+    {
+      "failure": "semantic_cache_intent_bleeding",
+      "signals": [
+        "cache_query_intent_mismatch",
+        "retrieval_skipped_after_cache_hit",
+        "retrieved_docs_low_intent_alignment"
+      ]
+    },
+    {
+      "failure": "rag_retrieval_drift",
+      "signals": [
+        "retrieved_docs_low_intent_alignment",
+        "retrieval_skipped_after_cache_hit"
+      ]
+    }
+  ]
+}
