@@ -1,17 +1,7 @@
 """
-explainer.py
+explainer.py (OpenAI version)
 
 Phase 10: Robust LLM-powered explanation generation.
-
-Architecture:
-  debugger output (deterministic)
-  → explanation package (filtered subset)
-  → deterministic draft (template + labels)
-  → LLM smoothing (constrained)
-  → validator (faithfulness + coverage + order)
-
-The LLM does NOT diagnose or compose from scratch.
-It only smooths a deterministic draft into fluent prose.
 """
 
 import json
@@ -44,10 +34,8 @@ def build_explanation_package(debugger_output: dict) -> dict:
 def _describe_failure(failure_id: str) -> str:
     return FAILURE_MAP.get(failure_id, failure_id.replace("_", " "))
 
-
 def _describe_signal(signal_name: str) -> str:
     return SIGNAL_MAP.get(signal_name, signal_name.replace("_", " "))
-
 
 def _describe_signals(signals: list[str]) -> str:
     descriptions = [_describe_signal(s) for s in signals]
@@ -59,28 +47,21 @@ def _describe_signals(signals: list[str]) -> str:
 
 
 def render_draft(package: dict) -> dict:
-    """
-    Build a deterministic explanation draft from the package.
-    This is the 'ground truth' structure that the LLM will smooth.
-    """
     primary = package.get("primary_path") or []
     evidence_map = {
         e["failure"]: e["signals"]
         for e in package.get("evidence", [])
     }
 
-    # --- Steps ---
     steps = []
     for fid in primary:
         signals = evidence_map.get(fid, [])
-        step = {
+        steps.append({
             "failure": fid,
             "description": _describe_failure(fid),
             "signals": [_describe_signal(s) for s in signals],
-        }
-        steps.append(step)
+        })
 
-    # --- Primary explanation (template) ---
     parts = []
     for i, step in enumerate(steps):
         sig_text = _describe_signals(evidence_map.get(step["failure"], []))
@@ -94,7 +75,6 @@ def render_draft(package: dict) -> dict:
         parts.append(sentence)
     primary_draft = " ".join(parts)
 
-    # --- Alternative explanations ---
     alt_drafts = []
     for alt_path in package.get("alternative_paths", []):
         alt_parts = []
@@ -106,7 +86,6 @@ def render_draft(package: dict) -> dict:
                 alt_parts.append(f"leading to {fid} ({desc})")
         alt_drafts.append("An alternative path: " + ", ".join(alt_parts) + ".")
 
-    # --- Evidence summary ---
     all_signals = []
     for e in package.get("evidence", []):
         for s in e["signals"]:
@@ -116,7 +95,6 @@ def render_draft(package: dict) -> dict:
         if all_signals else "No supporting signals."
     )
 
-    # --- Summary ---
     if len(primary) >= 2:
         summary_draft = (
             f"The failure chain starts with {_describe_failure(primary[0])} "
@@ -127,7 +105,6 @@ def render_draft(package: dict) -> dict:
     else:
         summary_draft = "No causal path detected."
 
-    # --- Confidence note ---
     ranking = package.get("root_ranking", [])
     conflicts = package.get("conflicts", [])
     if ranking:
@@ -138,7 +115,6 @@ def render_draft(package: dict) -> dict:
         )
     else:
         conf_draft = "No ranking information available."
-
     if conflicts:
         c = conflicts[0]
         conf_draft += (
@@ -162,8 +138,7 @@ def render_draft(package: dict) -> dict:
 
 def load_template(name: str) -> str:
     path = TEMPLATES_DIR / name
-    return path.read_text().strip()
-
+    return path.read_text(encoding="utf-8").strip()
 
 def build_prompt(package: dict, draft: dict) -> tuple[str, str]:
     system = load_template("system_prompt.txt")
@@ -177,34 +152,35 @@ def build_prompt(package: dict, draft: dict) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# LLM call
+# LLM call (OpenAI)
 # ---------------------------------------------------------------------------
 
 def call_llm(system: str, user: str, api_key: str | None = None,
-             model: str = "claude-sonnet-4-20250514") -> dict:
+             model: str = "gpt-4.1-mini") -> dict:
     import urllib.request
     import urllib.error
 
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    key = api_key or os.environ.get("OPENAI_API_KEY")
     if not key:
         raise RuntimeError(
-            "No API key. Set ANTHROPIC_API_KEY or pass api_key argument."
+            "No API key. Set OPENAI_API_KEY or pass api_key argument."
         )
 
     payload = json.dumps({
         "model": model,
-        "max_tokens": 1024,
-        "system": system,
-        "messages": [{"role": "user", "content": user}],
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user}
+        ],
+        "temperature": 0
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        "https://api.openai.com/v1/chat/completions",
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "x-api-key": key,
-            "anthropic-version": "2023-06-01",
+            "Authorization": f"Bearer {key}",
         },
         method="POST",
     )
@@ -216,10 +192,10 @@ def call_llm(system: str, user: str, api_key: str | None = None,
         error_body = e.read().decode("utf-8") if e.fp else ""
         raise RuntimeError(f"API error {e.code}: {error_body}") from e
 
-    text = ""
-    for block in body.get("content", []):
-        if block.get("type") == "text":
-            text += block["text"]
+    try:
+        text = body["choices"][0]["message"]["content"]
+    except Exception:
+        raise RuntimeError(f"Unexpected API response: {body}")
 
     text = text.strip()
     if text.startswith("```"):
@@ -238,7 +214,7 @@ def call_llm(system: str, user: str, api_key: str | None = None,
 
 
 # ---------------------------------------------------------------------------
-# Validator (Phase 10 strengthened)
+# Validator (Phase 10)
 # ---------------------------------------------------------------------------
 
 EXPECTED_FIELDS = {
@@ -253,18 +229,11 @@ FORBIDDEN_WORDS = {"maybe", "possibly", "perhaps", "might", "could be",
 def validate(response: dict, package: dict) -> list[str]:
     violations = []
 
-    # 1. Schema check
     missing = EXPECTED_FIELDS - set(response.keys())
     if missing:
         violations.append(f"Missing fields: {missing}")
 
     primary = package.get("primary_path") or []
-    evidence_map = {
-        e["failure"]: e["signals"]
-        for e in package.get("evidence", [])
-    }
-
-    # 2. Primary path node coverage
     primary_text = response.get("primary_explanation", "")
     for node in primary:
         if node not in primary_text and node.replace("_", " ") not in primary_text:
@@ -272,7 +241,6 @@ def validate(response: dict, package: dict) -> list[str]:
                 f"Primary path node '{node}' not mentioned in primary_explanation"
             )
 
-    # 3. Alternative count match
     alt_explanations = response.get("alternative_explanations", [])
     alt_paths = package.get("alternative_paths", [])
     if len(alt_explanations) != len(alt_paths):
@@ -281,34 +249,29 @@ def validate(response: dict, package: dict) -> list[str]:
             f"!= alternative_paths count ({len(alt_paths)})"
         )
 
-    # 4. Signal coverage: all evidence signals must appear somewhere
     all_text = json.dumps(response).lower()
     for ev in package.get("evidence", []):
         for sig in ev["signals"]:
             sig_desc = SIGNAL_MAP.get(sig, "").lower()
             sig_name = sig.replace("_", " ").lower()
-            # Check either the signal name or its label appears
             if sig_name not in all_text and sig_desc not in all_text and sig not in all_text:
                 violations.append(f"Signal '{sig}' not reflected in explanation")
 
-    # 5. Forbidden words (speculation check)
     for word in FORBIDDEN_WORDS:
         if word in all_text:
             violations.append(f"Speculative language detected: '{word}'")
 
-    # 6. Causal order check: nodes must appear in primary path order
     for i in range(len(primary) - 1):
         pos_a = primary_text.find(primary[i])
         pos_b = primary_text.find(primary[i + 1])
         if pos_a == -1 or pos_b == -1:
-            continue  # already caught by node coverage check
+            continue
         if pos_a > pos_b:
             violations.append(
                 f"Causal order violation: '{primary[i]}' appears after "
                 f"'{primary[i+1]}' in primary_explanation"
             )
 
-    # 7. Steps structure check
     steps = response.get("steps", [])
     if steps and len(steps) != len(primary):
         violations.append(
@@ -323,14 +286,8 @@ def validate(response: dict, package: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def explain(debugger_output: dict, api_key: str | None = None,
-            model: str = "claude-sonnet-4-20250514",
+            model: str = "gpt-4.1-mini",
             use_llm: bool = True) -> dict:
-    """
-    Full pipeline:
-      debugger output → package → draft → (optional LLM) → validated response.
-
-    If use_llm=False, returns the deterministic draft directly.
-    """
     package = build_explanation_package(debugger_output)
     draft = render_draft(package)
 
