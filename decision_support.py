@@ -2,12 +2,17 @@
 decision_support.py
 
 Phase 15: Decision Support — failure → action conversion.
+Phase 20: Learning integration — effectiveness-aware priority scoring.
 
 GPT review fixes applied:
   ① root_norm: single-root case handled (use raw score, not 1.0)
   ② abstraction integration: selected_paths penalty for non-selected failures
   ③ build_plan: sort by priority_score within each timeline
   ④ conflict_resolution_summary: supports multiple conflict groups
+
+Phase 20 additions:
+  ⑤ effectiveness_score boost when learning policies are provided
+  ⑥ threshold_suggestions in output (display only)
 """
 
 from labels import FAILURE_MAP
@@ -109,14 +114,19 @@ ACTION_MAP = {
 # ---------------------------------------------------------------------------
 
 def _compute_priority_score(failure_id: str, debugger_output: dict,
-                            selected_nodes: set | None = None) -> float:
+                            selected_nodes: set | None = None,
+                            effectiveness_score: float = 0.0) -> float:
     """
-    Score a failure for action priority:
-      0.4 * root_score_normalized
-    + 0.3 * upstream_bonus
-    + 0.2 * confidence
-    + 0.1 * not_suppressed
-    - 0.1 * not_in_selected (fix ②)
+    Score a failure for action priority.
+
+    Without learning (Phase 15):
+      0.4 * root_norm + 0.3 * upstream_bonus + 0.2 * confidence + 0.1 * not_suppressed
+
+    With learning (Phase 20):
+      0.35 * root_norm + 0.25 * upstream_bonus + 0.15 * confidence
+      + 0.1 * not_suppressed + 0.15 * effectiveness_score
+
+    Both modes preserve: -0.1 not_in_selected penalty (fix ②)
     """
     conf_map = {f["id"]: f["confidence"] for f in debugger_output.get("failures", [])}
     root_scores = {r["id"]: r["score"] for r in debugger_output.get("root_ranking", [])}
@@ -148,7 +158,14 @@ def _compute_priority_score(failure_id: str, debugger_output: dict,
             suppressed.add(s)
     not_suppressed = 0.0 if failure_id in suppressed else 1.0
 
-    score = 0.4 * root_norm + 0.3 * upstream_bonus + 0.2 * confidence + 0.1 * not_suppressed
+    # Phase 20: learning-aware vs original weights
+    if effectiveness_score > 0:
+        score = (0.35 * root_norm + 0.25 * upstream_bonus
+                 + 0.15 * confidence + 0.1 * not_suppressed
+                 + 0.15 * effectiveness_score)
+    else:
+        score = (0.4 * root_norm + 0.3 * upstream_bonus
+                 + 0.2 * confidence + 0.1 * not_suppressed)
 
     # Selected paths penalty (fix ②)
     if selected_nodes is not None and failure_id not in selected_nodes:
@@ -170,10 +187,12 @@ def _priority_label(score: float) -> str:
 # ---------------------------------------------------------------------------
 
 def generate_actions(debugger_output: dict,
-                     abstraction_output: dict | None = None) -> list[dict]:
+                     abstraction_output: dict | None = None,
+                     policies: dict | None = None) -> list[dict]:
     """
     Generate recommended actions for each active failure, ranked by priority.
     If abstraction_output is provided, failures not in selected_paths are penalized.
+    If policies is provided (Phase 20), effectiveness scores boost priority.
     """
     failures = debugger_output.get("failures", [])
     primary = debugger_output.get("primary_path") or []
@@ -185,6 +204,9 @@ def generate_actions(debugger_output: dict,
         for path in abstraction_output["selected_paths"]:
             for node in path:
                 selected_nodes.add(node)
+
+    # Phase 20: effectiveness lookup
+    fix_eff = (policies or {}).get("fix_effectiveness", {})
 
     # Suppressed failures
     suppressed = set()
@@ -199,7 +221,17 @@ def generate_actions(debugger_output: dict,
         if not action_def:
             continue
 
-        score = _compute_priority_score(fid, debugger_output, selected_nodes)
+        # Phase 20: best effectiveness for this failure
+        eff_score = 0.0
+        eff_entries = fix_eff.get(fid, {})
+        if eff_entries:
+            eff_score = max(
+                e.get("effectiveness_score", 0.0) for e in eff_entries.values()
+            )
+
+        score = _compute_priority_score(
+            fid, debugger_output, selected_nodes, eff_score
+        )
         priority = _priority_label(score)
 
         # Rationale
@@ -222,7 +254,11 @@ def generate_actions(debugger_output: dict,
         else:
             rationale = f"Active failure contributing to system degradation."
 
-        actions.append({
+        # Phase 20: annotate effectiveness boost
+        if eff_score > 0:
+            rationale += f" (boosted by effectiveness={eff_score:.2f})"
+
+        entry = {
             "target_failure": fid,
             "priority": priority,
             "priority_score": score,
@@ -231,7 +267,11 @@ def generate_actions(debugger_output: dict,
             "type": action_def["type"],
             "rationale": rationale,
             "expected_effect": action_def["expected_effect"],
-        })
+        }
+        if eff_score > 0:
+            entry["effectiveness_score"] = eff_score
+
+        actions.append(entry)
 
     actions.sort(key=lambda a: a["priority_score"], reverse=True)
     return actions
@@ -293,11 +333,14 @@ def conflict_resolution_summary(debugger_output: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def decide(debugger_output: dict,
-           abstraction_output: dict | None = None) -> dict:
+           abstraction_output: dict | None = None,
+           policies: dict | None = None) -> dict:
     """
     Full decision support pipeline.
+    Phase 20: when policies is provided, effectiveness scores are used
+    and threshold suggestions are included.
     """
-    actions = generate_actions(debugger_output, abstraction_output)
+    actions = generate_actions(debugger_output, abstraction_output, policies)
     plan = build_plan(actions)
     conflict_summaries = conflict_resolution_summary(debugger_output)
 
@@ -307,5 +350,11 @@ def decide(debugger_output: dict,
     }
     if conflict_summaries:
         result["conflict_resolutions"] = conflict_summaries
+
+    # Phase 20: threshold suggestions (display only, never auto-apply)
+    if policies:
+        proposals = policies.get("threshold_policy", {}).get("proposals", [])
+        if proposals:
+            result["threshold_suggestions"] = proposals
 
     return result
