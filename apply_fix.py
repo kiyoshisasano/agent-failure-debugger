@@ -1,114 +1,63 @@
 """
-autofix.py
+apply_fix.py — Dry-run display of autofix patches.
 
-Phase 16: Deterministic autofix generation.
+Usage:
+  python apply_fix.py [autofix_output.json]
 
-Pipeline:
-  decision_support output → fix selection → patch generation
-
-Selection rules:
-  - Only high priority failures
-  - Not suppressed by conflict resolution
-  - safety != low (low = too risky for autofix)
+Or full pipeline from debugger output:
+  python autofix.py debugger_output.json > autofix.json
+  python apply_fix.py autofix.json
 """
 
 import json
 import sys
 
-from fix_templates import AUTOFIX_MAP
-from decision_support import decide
+
+def format_patch(patch: dict) -> str:
+    lines = [
+        f"=== FIX: {patch['target_failure']} ===",
+        f"Type: {patch['fix_type']}",
+        f"Target: {patch['target']}",
+        f"Safety: {patch['safety']}",
+        f"Review Required: {patch['review_required']}",
+        "",
+        "Patch:",
+        json.dumps(patch["patch"], indent=2),
+    ]
+    return "\n".join(lines)
 
 
-def _select_fix_candidates(decision_output: dict,
-                           top_k: int = 1) -> list[dict]:
-    """
-    Select safe, high-value fixes.
-    Candidates must be in the primary path (from decision_support's source).
-    top_k controls how many fixes to recommend (default: 1 = single-fix mode).
-    """
-    candidates = []
+def dry_run(autofix_output: dict):
+    print("\n=== AUTO-FIX DRY RUN ===\n")
 
-    suppressed = set()
-    for c in decision_output.get("conflict_resolutions", []):
-        for s in c.get("deprioritized", []):
-            suppressed.add(s)
+    fixes = autofix_output.get("recommended_fixes", [])
+    if not fixes:
+        print("No fixes recommended.")
+        return
 
-    for action in decision_output.get("recommended_actions", []):
-        fid = action["target_failure"]
+    for patch in fixes:
+        print(format_patch(patch))
+        print()
 
-        if fid not in AUTOFIX_MAP:
-            continue
-        if action["priority"] not in ("high", "medium"):
-            continue
-        if action["priority"] == "medium" and top_k <= 1:
-            continue
-        if fid in suppressed:
-            continue
+    plan = autofix_output.get("patch_plan", {})
+    print("=== SUMMARY ===")
+    print(f"High safety:  {len(plan.get('high_safety', []))}")
+    print(f"Needs review: {len(plan.get('needs_review', []))}")
 
-        template = AUTOFIX_MAP[fid]
-        if template["safety"] == "low":
-            continue
-
-        candidates.append({
-            "failure": fid,
-            "priority_score": action["priority_score"],
-            "template": template,
-        })
-
-    candidates.sort(key=lambda x: x["priority_score"], reverse=True)
-    return candidates[:top_k]
-
-
-def _build_patch(candidate: dict) -> dict:
-    template = candidate["template"]
-    return {
-        "target_failure": candidate["failure"],
-        "fix_type": template["fix_type"],
-        "target": template["target"],
-        "patch": template["patch"],
-        "safety": template["safety"],
-        "review_required": template["safety"] != "high",
-    }
-
-
-def generate_autofix(decision_output: dict, top_k: int = 1) -> dict:
-    """Generate autofix patches from decision support output."""
-    candidates = _select_fix_candidates(decision_output, top_k=top_k)
-
-    patches = [_build_patch(c) for c in candidates]
-
-    return {
-        "recommended_fixes": patches,
-        "patch_plan": {
-            "high_safety": [p for p in patches if p["safety"] == "high"],
-            "needs_review": [p for p in patches if p["safety"] != "high"],
-        },
-        "review_notes": [
-            "Only high-priority failures from primary paths are included.",
-            "Suppressed competing causes are excluded.",
-            "Medium-safety patches require human confirmation.",
-        ],
-    }
+    notes = autofix_output.get("review_notes", [])
+    if notes:
+        print("\nNotes:")
+        for note in notes:
+            print(f"  - {note}")
 
 
 def main():
-    """CLI: debugger_output.json → decision → autofix"""
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    flags = sys.argv[1:]
-
-    input_path = args[0] if args else "debugger_output.json"
-    top_k = 1
-    for i, flag in enumerate(flags):
-        if flag == "--top-k" and i + 1 < len(flags):
-            top_k = int(flags[i + 1])
+    input_path = sys.argv[1] if len(sys.argv) > 1 else "autofix.json"
 
     with open(input_path) as f:
-        debugger_output = json.load(f)
+        data = json.load(f)
 
-    decision_output = decide(debugger_output)
-    autofix_output = generate_autofix(decision_output, top_k=top_k)
-
-    print(json.dumps(autofix_output, indent=2))
+    dry_run(data)
 
 
 if __name__ == "__main__":
