@@ -39,6 +39,14 @@ nodes:
     layer: retrieval
     status: defined
 
+  - id: prompt_injection_via_retrieval
+    role: initiating_failure
+    layer: retrieval
+    status: defined
+    note: >
+      Retrieved content introduces adversarial or instruction-altering signals
+      that override or distort the intended task.
+
   - id: agent_tool_call_loop
     role: propagated_failure
     layer: system
@@ -82,6 +90,35 @@ edges:
         - retrieval_bypassed_by_cache
       note: >
         Observable edge supported by current telemetry and co-diagnosis.
+
+  - id: E_pmc_to_prompt_injection
+    from: premature_model_commitment
+    to: prompt_injection_via_retrieval
+    relation: predisposes
+    semantics:
+      description: >
+        Early commitment without critical evaluation increases susceptibility
+        to adversarial or misleading retrieved content.
+      conditions:
+        - lack_of_critical_evaluation_of_context
+        - overcommitment_to_single_interpretation
+      note: >
+        Observable edge. PMC reduces the agent's ability to
+        critically assess retrieved content.
+
+  - id: E_prompt_injection_to_rrd
+    from: prompt_injection_via_retrieval
+    to: rag_retrieval_drift
+    relation: induces
+    semantics:
+      description: >
+        Adversarial or instruction-altering retrieved content distorts
+        retrieval relevance and leads to degraded retrieval behavior.
+      conditions:
+        - adversarial_context_present
+        - instruction_override_from_context
+      note: >
+        Observable edge. Prompt injection poisons downstream retrieval.
 
   - id: E_pmc_to_tool_loop
     from: premature_model_commitment
