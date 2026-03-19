@@ -1,0 +1,8 @@
+Smooth the following deterministic draft into fluent prose.
+Do not change any failure names, signal descriptions, or causal order.
+
+Draft:
+{draft}
+
+Source package (for reference only — do not add information not in the draft):
+{explanation_package}
