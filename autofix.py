@@ -128,6 +128,7 @@ def _build_patch(candidate: dict, use_learning: bool = False) -> dict:
         "patch": template["patch"],
         "safety": effective_safety,
         "review_required": effective_safety != "high",
+        "priority_score": candidate.get("priority_score", 0.0),
     }
 
     # Phase 20: annotate learning-derived fields
