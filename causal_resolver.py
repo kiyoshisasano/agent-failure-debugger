@@ -134,9 +134,10 @@ def resolve(graph: dict, matcher_output: list) -> dict:
     ranking = compute_root_ranking(enriched, roots, paths)
 
     return {
-        "roots":        roots,
-        "root_ranking": ranking,
-        "failures":     enriched,
-        "links":        links,
-        "paths":        paths,
+        "roots":         roots,
+        "root_ranking":  ranking,
+        "failures":      enriched,
+        "links":         links,
+        "paths":         paths,
+        "relationships": graph.get("relationships", []),
     }
