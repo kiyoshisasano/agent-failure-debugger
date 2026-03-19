@@ -39,6 +39,14 @@ nodes:
     layer: retrieval
     status: defined
 
+  - id: agent_tool_call_loop
+    role: propagated_failure
+    layer: system
+    status: defined
+    note: >
+      Repeated tool invocation without meaningful state progress.
+      Often predisposed by premature_model_commitment.
+
   - id: incorrect_output
     role: outcome
     layer: output
@@ -74,6 +82,21 @@ edges:
         - retrieval_bypassed_by_cache
       note: >
         Observable edge supported by current telemetry and co-diagnosis.
+
+  - id: E_pmc_to_tool_loop
+    from: premature_model_commitment
+    to: agent_tool_call_loop
+    relation: predisposes
+    semantics:
+      description: >
+        Early commitment without replanning can cause repeated tool use
+        under an invalid or unchanged assumption.
+      conditions:
+        - repeated_tool_invocation_without_progress
+        - persistence_without_replanning
+      note: >
+        Observable edge when repeated tool calls are accompanied by
+        lack of meaningful state change.
 
   - id: E_rrd_to_output
     from: rag_retrieval_drift
