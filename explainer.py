@@ -1,22 +1,24 @@
 """
 explainer.py
 
-Phase 9: LLM-powered explanation generation.
+Phase 10: Robust LLM-powered explanation generation.
 
 Architecture:
   debugger output (deterministic)
   → explanation package (filtered subset)
-  → LLM prompt (constrained)
-  → natural language report
-  → validator (faithfulness check)
+  → deterministic draft (template + labels)
+  → LLM smoothing (constrained)
+  → validator (faithfulness + coverage + order)
 
-The LLM does NOT diagnose. It only explains the structure
-that the debugger has already determined.
+The LLM does NOT diagnose or compose from scratch.
+It only smooths a deterministic draft into fluent prose.
 """
 
 import json
 import os
 from pathlib import Path
+
+from labels import FAILURE_MAP, SIGNAL_MAP
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -26,16 +28,131 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 # ---------------------------------------------------------------------------
 
 def build_explanation_package(debugger_output: dict) -> dict:
-    """
-    Extract the fields needed for LLM explanation.
-    Removes structural data that the LLM doesn't need.
-    """
     return {
         "primary_path":     debugger_output.get("primary_path"),
         "alternative_paths": debugger_output.get("alternative_paths", []),
         "conflicts":        debugger_output.get("conflicts", []),
         "evidence":         debugger_output.get("evidence", []),
         "root_ranking":     debugger_output.get("root_ranking", []),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Deterministic draft (template renderer)
+# ---------------------------------------------------------------------------
+
+def _describe_failure(failure_id: str) -> str:
+    return FAILURE_MAP.get(failure_id, failure_id.replace("_", " "))
+
+
+def _describe_signal(signal_name: str) -> str:
+    return SIGNAL_MAP.get(signal_name, signal_name.replace("_", " "))
+
+
+def _describe_signals(signals: list[str]) -> str:
+    descriptions = [_describe_signal(s) for s in signals]
+    if len(descriptions) == 0:
+        return ""
+    if len(descriptions) == 1:
+        return descriptions[0]
+    return ", ".join(descriptions[:-1]) + ", and " + descriptions[-1]
+
+
+def render_draft(package: dict) -> dict:
+    """
+    Build a deterministic explanation draft from the package.
+    This is the 'ground truth' structure that the LLM will smooth.
+    """
+    primary = package.get("primary_path") or []
+    evidence_map = {
+        e["failure"]: e["signals"]
+        for e in package.get("evidence", [])
+    }
+
+    # --- Steps ---
+    steps = []
+    for fid in primary:
+        signals = evidence_map.get(fid, [])
+        step = {
+            "failure": fid,
+            "description": _describe_failure(fid),
+            "signals": [_describe_signal(s) for s in signals],
+        }
+        steps.append(step)
+
+    # --- Primary explanation (template) ---
+    parts = []
+    for i, step in enumerate(steps):
+        sig_text = _describe_signals(evidence_map.get(step["failure"], []))
+        if i == 0:
+            sentence = f"The failure originated from {step['failure']}"
+        else:
+            sentence = f"This led to {step['failure']}"
+        if sig_text:
+            sentence += f", where {sig_text}"
+        sentence += "."
+        parts.append(sentence)
+    primary_draft = " ".join(parts)
+
+    # --- Alternative explanations ---
+    alt_drafts = []
+    for alt_path in package.get("alternative_paths", []):
+        alt_parts = []
+        for i, fid in enumerate(alt_path):
+            desc = _describe_failure(fid)
+            if i == 0:
+                alt_parts.append(f"{fid} ({desc})")
+            else:
+                alt_parts.append(f"leading to {fid} ({desc})")
+        alt_drafts.append("An alternative path: " + ", ".join(alt_parts) + ".")
+
+    # --- Evidence summary ---
+    all_signals = []
+    for e in package.get("evidence", []):
+        for s in e["signals"]:
+            all_signals.append(_describe_signal(s))
+    evidence_draft = (
+        "This explanation is supported by: " + "; ".join(all_signals) + "."
+        if all_signals else "No supporting signals."
+    )
+
+    # --- Summary ---
+    if len(primary) >= 2:
+        summary_draft = (
+            f"The failure chain starts with {_describe_failure(primary[0])} "
+            f"and results in {_describe_failure(primary[-1])}."
+        )
+    elif len(primary) == 1:
+        summary_draft = f"The failure is: {_describe_failure(primary[0])}."
+    else:
+        summary_draft = "No causal path detected."
+
+    # --- Confidence note ---
+    ranking = package.get("root_ranking", [])
+    conflicts = package.get("conflicts", [])
+    if ranking:
+        top = ranking[0]
+        conf_draft = (
+            f"The primary path was selected because {top['id']} "
+            f"had the highest root ranking score ({top['score']})."
+        )
+    else:
+        conf_draft = "No ranking information available."
+
+    if conflicts:
+        c = conflicts[0]
+        conf_draft += (
+            f" In the {c['group']} conflict group, {c['winner']} "
+            f"was preferred over {', '.join(c['suppressed'])}."
+        )
+
+    return {
+        "summary": summary_draft,
+        "primary_explanation": primary_draft,
+        "steps": steps,
+        "alternative_explanations": alt_drafts,
+        "evidence_summary": evidence_draft,
+        "confidence_note": conf_draft,
     }
 
 
@@ -48,15 +165,13 @@ def load_template(name: str) -> str:
     return path.read_text().strip()
 
 
-def build_prompt(package: dict) -> tuple[str, str]:
-    """
-    Returns (system_prompt, user_prompt).
-    """
+def build_prompt(package: dict, draft: dict) -> tuple[str, str]:
     system = load_template("system_prompt.txt")
     user_template = load_template("user_prompt.txt")
     user = user_template.replace(
-        "{explanation_package}",
-        json.dumps(package, indent=2)
+        "{draft}", json.dumps(draft, indent=2)
+    ).replace(
+        "{explanation_package}", json.dumps(package, indent=2)
     )
     return system, user
 
@@ -67,10 +182,6 @@ def build_prompt(package: dict) -> tuple[str, str]:
 
 def call_llm(system: str, user: str, api_key: str | None = None,
              model: str = "claude-sonnet-4-20250514") -> dict:
-    """
-    Call Anthropic API. Returns parsed JSON response.
-    Raises RuntimeError on API or parse failure.
-    """
     import urllib.request
     import urllib.error
 
@@ -105,13 +216,11 @@ def call_llm(system: str, user: str, api_key: str | None = None,
         error_body = e.read().decode("utf-8") if e.fp else ""
         raise RuntimeError(f"API error {e.code}: {error_body}") from e
 
-    # Extract text from response
     text = ""
     for block in body.get("content", []):
         if block.get("type") == "text":
             text += block["text"]
 
-    # Parse JSON (strip markdown fences if present)
     text = text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
@@ -129,20 +238,19 @@ def call_llm(system: str, user: str, api_key: str | None = None,
 
 
 # ---------------------------------------------------------------------------
-# Validator
+# Validator (Phase 10 strengthened)
 # ---------------------------------------------------------------------------
 
 EXPECTED_FIELDS = {
-    "summary", "primary_explanation", "alternative_explanations",
-    "evidence_summary", "confidence_note"
+    "summary", "primary_explanation", "steps",
+    "alternative_explanations", "evidence_summary", "confidence_note"
 }
+
+FORBIDDEN_WORDS = {"maybe", "possibly", "perhaps", "might", "could be",
+                   "it seems", "likely that", "I think", "I believe"}
 
 
 def validate(response: dict, package: dict) -> list[str]:
-    """
-    Check faithfulness of LLM response against the explanation package.
-    Returns list of violation messages (empty = valid).
-    """
     violations = []
 
     # 1. Schema check
@@ -150,41 +258,61 @@ def validate(response: dict, package: dict) -> list[str]:
     if missing:
         violations.append(f"Missing fields: {missing}")
 
-    # 2. Collect allowed failure names from package
-    allowed_failures = set()
     primary = package.get("primary_path") or []
-    for node in primary:
-        allowed_failures.add(node)
-    for alt in package.get("alternative_paths", []):
-        for node in alt:
-            allowed_failures.add(node)
-    for conflict in package.get("conflicts", []):
-        allowed_failures.add(conflict.get("winner", ""))
-        for s in conflict.get("suppressed", []):
-            allowed_failures.add(s)
+    evidence_map = {
+        e["failure"]: e["signals"]
+        for e in package.get("evidence", [])
+    }
 
-    # Collect allowed signal names
-    allowed_signals = set()
-    for ev in package.get("evidence", []):
-        for sig in ev.get("signals", []):
-            allowed_signals.add(sig)
-
-    # 3. Check that primary_explanation mentions primary path nodes
+    # 2. Primary path node coverage
     primary_text = response.get("primary_explanation", "")
     for node in primary:
-        # Convert underscore names to either underscore or space form
         if node not in primary_text and node.replace("_", " ") not in primary_text:
             violations.append(
                 f"Primary path node '{node}' not mentioned in primary_explanation"
             )
 
-    # 4. Check alternative count matches
+    # 3. Alternative count match
     alt_explanations = response.get("alternative_explanations", [])
     alt_paths = package.get("alternative_paths", [])
     if len(alt_explanations) != len(alt_paths):
         violations.append(
             f"alternative_explanations count ({len(alt_explanations)}) "
             f"!= alternative_paths count ({len(alt_paths)})"
+        )
+
+    # 4. Signal coverage: all evidence signals must appear somewhere
+    all_text = json.dumps(response).lower()
+    for ev in package.get("evidence", []):
+        for sig in ev["signals"]:
+            sig_desc = SIGNAL_MAP.get(sig, "").lower()
+            sig_name = sig.replace("_", " ").lower()
+            # Check either the signal name or its label appears
+            if sig_name not in all_text and sig_desc not in all_text and sig not in all_text:
+                violations.append(f"Signal '{sig}' not reflected in explanation")
+
+    # 5. Forbidden words (speculation check)
+    for word in FORBIDDEN_WORDS:
+        if word in all_text:
+            violations.append(f"Speculative language detected: '{word}'")
+
+    # 6. Causal order check: nodes must appear in primary path order
+    for i in range(len(primary) - 1):
+        pos_a = primary_text.find(primary[i])
+        pos_b = primary_text.find(primary[i + 1])
+        if pos_a == -1 or pos_b == -1:
+            continue  # already caught by node coverage check
+        if pos_a > pos_b:
+            violations.append(
+                f"Causal order violation: '{primary[i]}' appears after "
+                f"'{primary[i+1]}' in primary_explanation"
+            )
+
+    # 7. Steps structure check
+    steps = response.get("steps", [])
+    if steps and len(steps) != len(primary):
+        violations.append(
+            f"Steps count ({len(steps)}) != primary path length ({len(primary)})"
         )
 
     return violations
@@ -195,24 +323,37 @@ def validate(response: dict, package: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def explain(debugger_output: dict, api_key: str | None = None,
-            model: str = "claude-sonnet-4-20250514") -> dict:
+            model: str = "claude-sonnet-4-20250514",
+            use_llm: bool = True) -> dict:
     """
-    Full pipeline: debugger output → explanation package → LLM → validated response.
+    Full pipeline:
+      debugger output → package → draft → (optional LLM) → validated response.
 
-    Returns:
-      {
-        "explanation_package": {...},
-        "llm_response": {...},
-        "validation": {"valid": bool, "violations": [...]},
-      }
+    If use_llm=False, returns the deterministic draft directly.
     """
     package = build_explanation_package(debugger_output)
-    system, user = build_prompt(package)
+    draft = render_draft(package)
+
+    if not use_llm:
+        violations = validate(draft, package)
+        return {
+            "mode": "deterministic",
+            "explanation_package": package,
+            "response": draft,
+            "validation": {
+                "valid": len(violations) == 0,
+                "violations": violations,
+            },
+        }
+
+    system, user = build_prompt(package, draft)
     response = call_llm(system, user, api_key=api_key, model=model)
     violations = validate(response, package)
 
     return {
+        "mode": "hybrid",
         "explanation_package": package,
+        "draft": draft,
         "llm_response": response,
         "validation": {
             "valid": len(violations) == 0,
