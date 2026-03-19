@@ -200,7 +200,6 @@ def main():
 
     policies = None
     if use_learning:
-        sys.path.insert(0, "debugger")
         from policy_loader import load_policies
         policies = load_policies()
 
