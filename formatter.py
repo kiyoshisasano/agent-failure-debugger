@@ -1,10 +1,11 @@
 """
 formatter.py
 
-build_explanation():
-  - Uses path scoring to select the primary path
-  - Remaining multi-hop paths become alternative contributing paths
-  - Falls back to "No causal relationships detected." if no multi-hop path exists
+Pipeline:
+  1. path scoring → select primary path
+  2. conflict resolution → detect exclusivity groups
+  3. select alternative paths
+  4. build explanation + evidence
 
 Path scoring:
   path_score = 0.4 * avg_confidence
@@ -12,12 +13,9 @@ Path scoring:
              + 0.2 * root_rank_score
              + 0.2 * signal_density
 
-Output fields:
-  primary_path       : the single most important causal chain
-  alternative_paths  : other active causal chains (may be empty)
-  causal_paths       : all paths (structural, unchanged)
-  explanation        : human-readable narrative covering primary + alternatives
-  evidence           : signal-level justification for each failure in primary path
+Conflict resolution:
+  For each exclusivity group, if multiple members are active,
+  the member in the primary path wins and others are suppressed.
 """
 
 RELATION_TEXT = {
@@ -27,11 +25,11 @@ RELATION_TEXT = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Path scoring
+# ---------------------------------------------------------------------------
+
 def _signal_density(failure: dict) -> float:
-    """
-    Ratio of active (true) signals to total signals for a failure.
-    Returns 0.0 if no signals present.
-    """
     signals = failure.get("signals", {})
     if not signals:
         return 0.0
@@ -41,13 +39,6 @@ def _signal_density(failure: dict) -> float:
 
 def _score_path(path: list, conf_map: dict, failure_map: dict,
                 root_scores: dict, max_length: int) -> float:
-    """
-    Score a path for primary selection:
-      0.4 * avg_confidence
-    + 0.2 * normalized_length
-    + 0.2 * root_rank_score
-    + 0.2 * avg_signal_density
-    """
     avg_conf = sum(conf_map.get(n, 0.0) for n in path) / len(path)
     norm_len = len(path) / max_length if max_length > 0 else 0.0
     root_score = root_scores.get(path[0], 0.0)
@@ -59,10 +50,6 @@ def _score_path(path: list, conf_map: dict, failure_map: dict,
 
 
 def select_primary_path(result: dict) -> list | None:
-    """
-    Return the primary path using path scoring.
-    Falls back to None if no multi-hop path exists.
-    """
     multi_hop = [p for p in result.get("paths", []) if len(p) >= 2]
     if not multi_hop:
         return None
@@ -81,17 +68,66 @@ def select_primary_path(result: dict) -> list | None:
 
 
 def select_alternative_paths(result: dict, primary: list | None) -> list:
-    """
-    Return all multi-hop paths that are not the primary path.
-    """
     if primary is None:
         return []
     multi_hop = [p for p in result.get("paths", []) if len(p) >= 2]
     return [p for p in multi_hop if p != primary]
 
 
+# ---------------------------------------------------------------------------
+# Conflict resolution
+# ---------------------------------------------------------------------------
+
+def resolve_conflicts(result: dict, primary: list | None) -> list:
+    """
+    Detect exclusivity group conflicts among active failures.
+    Returns a list of conflict records.
+
+    For soft mode: the group member present in the primary path wins.
+    If no member is in the primary path, the highest-confidence member wins.
+    """
+    relationships = result.get("relationships", [])
+    if not relationships:
+        return []
+
+    active_ids = {f["id"] for f in result.get("failures", [])}
+    conf_map = {f["id"]: f["confidence"] for f in result.get("failures", [])}
+    primary_set = set(primary) if primary else set()
+
+    conflicts = []
+
+    for rel in relationships:
+        if rel.get("type") != "exclusivity":
+            continue
+
+        members_active = [fid for fid in rel["failures"] if fid in active_ids]
+        if len(members_active) < 2:
+            continue
+
+        # Determine winner: prefer member in primary path, then highest conf
+        in_primary = [fid for fid in members_active if fid in primary_set]
+        if in_primary:
+            winner = in_primary[0]
+        else:
+            winner = max(members_active, key=lambda fid: conf_map.get(fid, 0.0))
+
+        suppressed = [fid for fid in members_active if fid != winner]
+
+        conflicts.append({
+            "group": rel["group"],
+            "winner": winner,
+            "suppressed": suppressed,
+            "mode": rel.get("mode", "soft"),
+        })
+
+    return conflicts
+
+
+# ---------------------------------------------------------------------------
+# Narrative
+# ---------------------------------------------------------------------------
+
 def _narrate_path(path: list, edge_map: dict) -> str:
-    """Build a human-readable narrative for a single path."""
     parts = []
     for i in range(len(path) - 1):
         src = path[i]
@@ -105,10 +141,6 @@ def _narrate_path(path: list, edge_map: dict) -> str:
 
 
 def build_evidence(result: dict, path: list | None) -> list:
-    """
-    Build signal-level evidence for each failure in the primary path.
-    Only includes active (true) signals.
-    """
     if path is None:
         return []
 
@@ -130,7 +162,7 @@ def build_evidence(result: dict, path: list | None) -> list:
 
 
 def build_explanation(result: dict, primary: list | None,
-                      alternatives: list) -> str:
+                      alternatives: list, conflicts: list) -> str:
     if primary is None:
         return "No causal relationships detected."
 
@@ -138,6 +170,12 @@ def build_explanation(result: dict, primary: list | None,
         (link["from"], link["to"]): link["relation"]
         for link in result["links"]
     }
+
+    # Build suppressed set for annotation
+    suppressed_set = set()
+    for c in conflicts:
+        for s in c["suppressed"]:
+            suppressed_set.add(s)
 
     lines = []
 
@@ -148,18 +186,35 @@ def build_explanation(result: dict, primary: list | None,
     else:
         lines.append(f"Causal path detected: {primary_narrative}")
 
-    # Alternative path narratives
+    # Alternative path narratives (annotated if suppressed)
     for alt in alternatives:
         alt_narrative = _narrate_path(alt, edge_map)
-        lines.append(
-            f"Alternative contributing path: {alt_narrative}"
-        )
+        is_suppressed = any(node in suppressed_set for node in alt)
+        if is_suppressed:
+            lines.append(
+                f"Alternative competing path (lower confidence): "
+                f"{alt_narrative}"
+            )
+        else:
+            lines.append(
+                f"Alternative contributing path: {alt_narrative}"
+            )
 
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+
 def format_output(result: dict) -> dict:
+    # 1. Path scoring
     primary = select_primary_path(result)
+
+    # 2. Conflict resolution
+    conflicts = resolve_conflicts(result, primary)
+
+    # 3. Alternative paths
     alternatives = select_alternative_paths(result, primary)
 
     return {
@@ -170,6 +225,8 @@ def format_output(result: dict) -> dict:
         "causal_paths":     result.get("paths", []),
         "primary_path":     primary,
         "alternative_paths": alternatives,
-        "explanation":      build_explanation(result, primary, alternatives),
+        "conflicts":        conflicts,
+        "explanation":      build_explanation(result, primary, alternatives,
+                                             conflicts),
         "evidence":         build_evidence(result, primary),
     }
