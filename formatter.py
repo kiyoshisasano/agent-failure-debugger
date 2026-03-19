@@ -7,13 +7,17 @@ build_explanation():
   - Falls back to "No causal relationships detected." if no multi-hop path exists
 
 Path scoring:
-  path_score = 0.5 * avg_confidence + 0.3 * normalized_length + 0.2 * root_rank_score
+  path_score = 0.4 * avg_confidence
+             + 0.2 * normalized_length
+             + 0.2 * root_rank_score
+             + 0.2 * signal_density
 
 Output fields:
   primary_path       : the single most important causal chain
   alternative_paths  : other active causal chains (may be empty)
   causal_paths       : all paths (structural, unchanged)
   explanation        : human-readable narrative covering primary + alternatives
+  evidence           : signal-level justification for each failure in primary path
 """
 
 RELATION_TEXT = {
@@ -23,17 +27,35 @@ RELATION_TEXT = {
 }
 
 
-def _score_path(path: list, conf_map: dict, root_scores: dict,
-                max_length: int) -> float:
+def _signal_density(failure: dict) -> float:
+    """
+    Ratio of active (true) signals to total signals for a failure.
+    Returns 0.0 if no signals present.
+    """
+    signals = failure.get("signals", {})
+    if not signals:
+        return 0.0
+    active = sum(1 for v in signals.values() if v)
+    return active / len(signals)
+
+
+def _score_path(path: list, conf_map: dict, failure_map: dict,
+                root_scores: dict, max_length: int) -> float:
     """
     Score a path for primary selection:
-      0.5 * avg_confidence + 0.3 * normalized_length + 0.2 * root_rank_score
+      0.4 * avg_confidence
+    + 0.2 * normalized_length
+    + 0.2 * root_rank_score
+    + 0.2 * avg_signal_density
     """
     avg_conf = sum(conf_map.get(n, 0.0) for n in path) / len(path)
     norm_len = len(path) / max_length if max_length > 0 else 0.0
     root_score = root_scores.get(path[0], 0.0)
+    avg_density = sum(
+        _signal_density(failure_map[n]) for n in path if n in failure_map
+    ) / len(path)
 
-    return 0.5 * avg_conf + 0.3 * norm_len + 0.2 * root_score
+    return 0.4 * avg_conf + 0.2 * norm_len + 0.2 * root_score + 0.2 * avg_density
 
 
 def select_primary_path(result: dict) -> list | None:
@@ -46,6 +68,7 @@ def select_primary_path(result: dict) -> list | None:
         return None
 
     conf_map = {f["id"]: f["confidence"] for f in result.get("failures", [])}
+    failure_map = {f["id"]: f for f in result.get("failures", [])}
     root_scores = {
         r["id"]: r["score"]
         for r in result.get("root_ranking", [])
@@ -53,7 +76,8 @@ def select_primary_path(result: dict) -> list | None:
     max_length = max(len(p) for p in multi_hop)
 
     return max(multi_hop,
-               key=lambda p: _score_path(p, conf_map, root_scores, max_length))
+               key=lambda p: _score_path(p, conf_map, failure_map,
+                                         root_scores, max_length))
 
 
 def select_alternative_paths(result: dict, primary: list | None) -> list:
@@ -78,6 +102,31 @@ def _narrate_path(path: list, edge_map: dict) -> str:
         else:
             parts.append(f"which {rel} {dst}")
     return ", ".join(parts)
+
+
+def build_evidence(result: dict, path: list | None) -> list:
+    """
+    Build signal-level evidence for each failure in the primary path.
+    Only includes active (true) signals.
+    """
+    if path is None:
+        return []
+
+    failure_map = {f["id"]: f for f in result.get("failures", [])}
+    evidence = []
+    for node in path:
+        f = failure_map.get(node)
+        if f is None:
+            continue
+        active_signals = [
+            sig for sig, val in f.get("signals", {}).items() if val
+        ]
+        if active_signals:
+            evidence.append({
+                "failure": node,
+                "signals": active_signals,
+            })
+    return evidence
 
 
 def build_explanation(result: dict, primary: list | None,
@@ -122,4 +171,5 @@ def format_output(result: dict) -> dict:
         "primary_path":     primary,
         "alternative_paths": alternatives,
         "explanation":      build_explanation(result, primary, alternatives),
+        "evidence":         build_evidence(result, primary),
     }
