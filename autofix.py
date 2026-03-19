@@ -23,24 +23,20 @@ def _select_fix_candidates(decision_output: dict,
                            top_k: int = 1) -> list[dict]:
     """
     Select safe, high-value fixes.
-    Candidates must be in the primary path (from decision_support's source).
-    top_k controls how many fixes to recommend (default: 1 = single-fix mode).
+    High-priority fills first, medium only if slots remain.
     """
-    candidates = []
-
     suppressed = set()
     for c in decision_output.get("conflict_resolutions", []):
         for s in c.get("deprioritized", []):
             suppressed.add(s)
 
+    high_candidates = []
+    medium_candidates = []
+
     for action in decision_output.get("recommended_actions", []):
         fid = action["target_failure"]
 
         if fid not in AUTOFIX_MAP:
-            continue
-        if action["priority"] not in ("high", "medium"):
-            continue
-        if action["priority"] == "medium" and top_k <= 1:
             continue
         if fid in suppressed:
             continue
@@ -49,14 +45,26 @@ def _select_fix_candidates(decision_output: dict,
         if template["safety"] == "low":
             continue
 
-        candidates.append({
+        entry = {
             "failure": fid,
             "priority_score": action["priority_score"],
             "template": template,
-        })
+        }
 
-    candidates.sort(key=lambda x: x["priority_score"], reverse=True)
-    return candidates[:top_k]
+        if action["priority"] == "high":
+            high_candidates.append(entry)
+        elif action["priority"] == "medium":
+            medium_candidates.append(entry)
+
+    high_candidates.sort(key=lambda x: x["priority_score"], reverse=True)
+    medium_candidates.sort(key=lambda x: x["priority_score"], reverse=True)
+
+    # High fills first, medium only if slots remain
+    selected = high_candidates[:top_k]
+    if len(selected) < top_k:
+        selected += medium_candidates[:(top_k - len(selected))]
+
+    return selected
 
 
 def _build_patch(candidate: dict) -> dict:
@@ -84,7 +92,8 @@ def generate_autofix(decision_output: dict, top_k: int = 1) -> dict:
             "needs_review": [p for p in patches if p["safety"] != "high"],
         },
         "review_notes": [
-            "Only high-priority failures from primary paths are included.",
+            "High-priority fixes are always preferred and fill first.",
+            "Medium-priority fixes are included only when top-k allows and high slots remain.",
             "Suppressed competing causes are excluded.",
             "Medium-safety patches require human confirmation.",
         ],
