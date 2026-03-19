@@ -55,6 +55,19 @@ def get_fix_effectiveness(failure: str, fix_type: str) -> float:
     return entry.get("effectiveness_score", 0.0)
 
 
+def scale_effectiveness(raw: float) -> float:
+    """
+    Normalize raw effectiveness_score to spread the useful range.
+
+    Raw scores cluster in 0.6–1.0 due to the formula in update_policy.py.
+    This rescales so that:
+      0.5 → 0.0 (mediocre = no boost)
+      1.0 → 1.0 (perfect = full boost)
+      <0.5 → 0.0 (poor = clamped)
+    """
+    return max(0.0, min(1.0, (raw - 0.5) * 2))
+
+
 def get_best_effectiveness(failure: str) -> float:
     """
     Return the highest effectiveness score across all fix types for a failure.
