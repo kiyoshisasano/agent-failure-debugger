@@ -207,6 +207,10 @@ def generate_actions(debugger_output: dict,
 
     # Phase 20: effectiveness lookup
     fix_eff = (policies or {}).get("fix_effectiveness", {})
+    _scale_eff = None
+    if fix_eff:
+        from policy_loader import scale_effectiveness
+        _scale_eff = scale_effectiveness
 
     # Suppressed failures
     suppressed = set()
@@ -222,15 +226,18 @@ def generate_actions(debugger_output: dict,
             continue
 
         # Phase 20: best effectiveness for this failure
-        eff_score = 0.0
+        eff_raw = 0.0
         eff_entries = fix_eff.get(fid, {})
         if eff_entries:
-            eff_score = max(
+            eff_raw = max(
                 e.get("effectiveness_score", 0.0) for e in eff_entries.values()
             )
 
+        # Phase 20 ①: scale to spread useful range (0.6–1.0 → 0.2–1.0)
+        eff_scaled = _scale_eff(eff_raw) if (_scale_eff and eff_raw > 0) else 0.0
+
         score = _compute_priority_score(
-            fid, debugger_output, selected_nodes, eff_score
+            fid, debugger_output, selected_nodes, eff_scaled
         )
         priority = _priority_label(score)
 
@@ -255,8 +262,8 @@ def generate_actions(debugger_output: dict,
             rationale = f"Active failure contributing to system degradation."
 
         # Phase 20: annotate effectiveness boost
-        if eff_score > 0:
-            rationale += f" (boosted by effectiveness={eff_score:.2f})"
+        if eff_raw > 0:
+            rationale += f" (boosted by effectiveness={eff_raw:.2f})"
 
         entry = {
             "target_failure": fid,
@@ -268,8 +275,8 @@ def generate_actions(debugger_output: dict,
             "rationale": rationale,
             "expected_effect": action_def["expected_effect"],
         }
-        if eff_score > 0:
-            entry["effectiveness_score"] = eff_score
+        if eff_raw > 0:
+            entry["effectiveness_score"] = eff_raw
 
         actions.append(entry)
 
