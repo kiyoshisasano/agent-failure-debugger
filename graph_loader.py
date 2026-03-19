@@ -40,4 +40,5 @@ def load_graph(path: str) -> dict:
         "edges": edges,
         "forward": forward,
         "backward": backward,
+        "relationships": data.get("relationships", []),
     }
