@@ -1,5 +1,16 @@
 version: 1
 
+# Graph rules (enforced by convention, validated manually):
+#   [ ] node.id must match failure_id in the corresponding pattern file
+#   [ ] edge.from and edge.to must reference existing node ids
+#   [ ] edge.conditions must NOT use signal names (use semantic names)
+#   [ ] edge.relation must be one of: predisposes | induces | propagates_to
+#   [ ] node.layer must be one of: reasoning | system | retrieval | output
+#   [ ] status: planned nodes are excluded by graph_loader at runtime
+#
+# This graph is NOT used for diagnosis.
+# It is used only for: causal interpretation, path construction, explanation.
+
 contracts:
   node_id_matches_failure_id: true
   condition_namespace: signal_contract_shared
@@ -9,10 +20,11 @@ nodes:
   - id: premature_model_commitment
     role: root_cause
     layer: reasoning
-    status: planned
+    status: defined
     note: >
-      Conceptual upstream cause retained from earlier graph.
-      Not yet diagnosable with current telemetry.
+      Diagnosable as of PMC telemetry contract v1.
+      Requires: input.ambiguity_score, interaction.clarification_triggered,
+      interaction.user_correction_detected, reasoning.replanned.
 
   - id: semantic_cache_intent_bleeding
     role: initiating_failure
@@ -20,7 +32,7 @@ nodes:
     status: defined
     note: >
       Observable initiating failure in the current telemetry surface.
-      Not guaranteed to be the ultimate root cause.
+      May be predisposed by premature_model_commitment.
 
   - id: rag_retrieval_drift
     role: propagated_failure
@@ -35,20 +47,22 @@ nodes:
 
 edges:
 
-  - id: E_pmc_to_retrieval_drift
+  - id: E_pmc_to_scib
     from: premature_model_commitment
-    to: rag_retrieval_drift
+    to: semantic_cache_intent_bleeding
     relation: predisposes
     semantics:
       description: >
-        Early hypothesis fixation can bias retrieval behavior and lead to drift.
+        Early hypothesis fixation increases the probability of cache misuse:
+        a committed interpretation accepts high-similarity cache hits
+        that conflict with the actual user intent.
       conditions:
-        - retrieval_query_locked_to_early_hypothesis
+        - ambiguous_input_without_clarification
+        - persistence_without_replanning
       note: >
-        Conceptual edge retained from earlier graph.
-        Not currently diagnosable with matcher.
+        Observable edge. Both nodes are now diagnosable.
 
-  - id: E_cache_bleeding_to_retrieval_drift
+  - id: E_scib_to_rrd
     from: semantic_cache_intent_bleeding
     to: rag_retrieval_drift
     relation: induces
@@ -56,12 +70,12 @@ edges:
       description: >
         Cache reuse with intent mismatch leads to degraded retrieval behavior.
       conditions:
-        - cache_query_intent_mismatch
-        - retrieval_skipped_after_cache_hit
+        - high_similarity_cache_hit_with_intent_mismatch
+        - retrieval_bypassed_by_cache
       note: >
         Observable edge supported by current telemetry and co-diagnosis.
 
-  - id: E_retrieval_drift_to_output
+  - id: E_rrd_to_output
     from: rag_retrieval_drift
     to: incorrect_output
     relation: propagates_to
@@ -69,6 +83,6 @@ edges:
       description: >
         Retrieval drift leads to incorrect or misaligned output.
       conditions:
-        - retrieved_docs_low_intent_alignment
+        - output_misaligned_with_intent
       note: >
         Outcome node not yet diagnosable.
