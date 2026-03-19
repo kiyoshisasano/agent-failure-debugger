@@ -17,6 +17,22 @@ contracts:
 
 nodes:
 
+  - id: clarification_failure
+    role: initiating_failure
+    layer: reasoning
+    status: defined
+    note: >
+      The system fails to request clarification under ambiguous input,
+      leading to premature commitment to a single interpretation.
+
+  - id: assumption_invalidation_failure
+    role: initiating_failure
+    layer: reasoning
+    status: defined
+    note: >
+      The system fails to abandon an invalidated hypothesis despite
+      contradicting evidence, persisting with an incorrect assumption.
+
   - id: premature_model_commitment
     role: root_cause
     layer: reasoning
@@ -39,6 +55,15 @@ nodes:
     layer: retrieval
     status: defined
 
+  - id: instruction_priority_inversion
+    role: initiating_failure
+    layer: system
+    status: defined
+    note: >
+      The system fails to maintain correct priority between system, user,
+      and retrieved instructions, allowing lower-priority instructions
+      to override higher-priority ones.
+
   - id: prompt_injection_via_retrieval
     role: initiating_failure
     layer: retrieval
@@ -46,6 +71,14 @@ nodes:
     note: >
       Retrieved content introduces adversarial or instruction-altering signals
       that override or distort the intended task.
+
+  - id: context_truncation_loss
+    role: initiating_failure
+    layer: retrieval
+    status: defined
+    note: >
+      Critical information is lost due to context window truncation,
+      leading to incomplete retrieval and degraded downstream behavior.
 
   - id: agent_tool_call_loop
     role: propagated_failure
@@ -63,13 +96,54 @@ nodes:
       Tool outputs are interpreted incorrectly, leading to wrong decisions
       despite correct tool execution.
 
+  - id: repair_strategy_failure
+    role: propagated_failure
+    layer: reasoning
+    status: defined
+    note: >
+      The system attempts to patch an incorrect output rather than
+      regenerating from corrected assumptions, propagating errors.
+
   - id: incorrect_output
     role: outcome
     layer: output
-    status: planned
+    status: defined
+    note: >
+      The system produces output that is misaligned with user intent
+      or requires user correction. Terminal node in the causal graph.
 
 
 edges:
+
+  - id: E_clarification_to_invalidation
+    from: clarification_failure
+    to: assumption_invalidation_failure
+    relation: predisposes
+    semantics:
+      description: >
+        Lack of clarification under ambiguity leads the system to form
+        an assumption that it subsequently fails to invalidate.
+      conditions:
+        - ambiguity_detected_without_clarification
+        - no_hypothesis_branching
+      note: >
+        Observable edge. Clarification failure is the trigger condition
+        that leads to assumption persistence.
+
+  - id: E_invalidation_to_pmc
+    from: assumption_invalidation_failure
+    to: premature_model_commitment
+    relation: predisposes
+    semantics:
+      description: >
+        Failure to invalidate an incorrect assumption leads to premature
+        commitment to a single interpretation.
+      conditions:
+        - contradiction_ignored
+        - hypothesis_retained_despite_evidence
+      note: >
+        Observable edge. Assumption persistence is the mechanism
+        that enables premature commitment.
 
   - id: E_pmc_to_scib
     from: premature_model_commitment
@@ -114,6 +188,21 @@ edges:
         Observable edge. PMC reduces the agent's ability to
         critically assess retrieved content.
 
+  - id: E_priority_inversion_to_prompt_injection
+    from: instruction_priority_inversion
+    to: prompt_injection_via_retrieval
+    relation: predisposes
+    semantics:
+      description: >
+        Incorrect instruction prioritization makes the system susceptible
+        to adversarial or conflicting retrieved instructions.
+      conditions:
+        - instruction_priority_misordered
+        - external_context_overrides_system_instruction
+      note: >
+        Observable edge. Priority inversion is the structural precondition
+        for prompt injection to succeed.
+
   - id: E_prompt_injection_to_rrd
     from: prompt_injection_via_retrieval
     to: rag_retrieval_drift
@@ -127,6 +216,21 @@ edges:
         - instruction_override_from_context
       note: >
         Observable edge. Prompt injection poisons downstream retrieval.
+
+  - id: E_truncation_to_rrd
+    from: context_truncation_loss
+    to: rag_retrieval_drift
+    relation: induces
+    semantics:
+      description: >
+        Context truncation removes critical information from the retrieval
+        context, causing downstream retrieval to miss relevant content.
+      conditions:
+        - critical_information_truncated
+        - retrieval_coverage_degraded
+      note: >
+        Observable edge. Truncation is a structural cause of retrieval
+        drift, distinct from semantic causes like cache misuse.
 
   - id: E_pmc_to_tool_loop
     from: premature_model_commitment
@@ -158,6 +262,21 @@ edges:
         Observable edge. Looping erodes the agent's ability to correctly
         interpret tool results.
 
+  - id: E_pmc_to_repair_failure
+    from: premature_model_commitment
+    to: repair_strategy_failure
+    relation: induces
+    semantics:
+      description: >
+        Premature commitment causes the system to patch outputs rather
+        than regenerate from corrected assumptions.
+      conditions:
+        - output_patched_without_regeneration
+        - assumption_unchanged_after_error
+      note: >
+        Observable edge. Commitment to a fixed interpretation
+        prevents proper error recovery.
+
   - id: E_rrd_to_output
     from: rag_retrieval_drift
     to: incorrect_output
@@ -168,4 +287,4 @@ edges:
       conditions:
         - output_misaligned_with_intent
       note: >
-        Outcome node not yet diagnosable.
+        Observable edge. Both nodes are now diagnosable.
