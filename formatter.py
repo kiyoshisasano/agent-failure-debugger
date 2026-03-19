@@ -1,11 +1,11 @@
 """
 formatter.py
-Formats resolver output into the final debugger JSON output.
 
 build_explanation():
-  - Uses path-based explanation when a multi-hop path (len >= 2) exists
-  - Falls back to link enumeration (with active signals) if no multi-hop path
-  - Falls back to "no causal relationships" if no links exist
+  - Uses root_ranking to select the path to narrate (top-ranked root first)
+  - Falls back to longest path if no ranking
+  - Falls back to "No causal relationships detected." if no multi-hop path exists
+  - Link-enumeration fallback (with active signals) when paths exist but no multi-hop
 """
 
 RELATION_TEXT = {
@@ -15,49 +15,57 @@ RELATION_TEXT = {
 }
 
 
-def build_explanation(result: dict) -> str:
-    # Only paths with at least 2 nodes contain an edge
+def select_path(result: dict) -> list | None:
+    """
+    Return the path to narrate:
+    - If root_ranking exists, prefer the longest path whose root is top-ranked.
+    - Fallback: longest multi-hop path overall.
+    - Returns None if no multi-hop path exists.
+    """
     multi_hop = [p for p in result.get("paths", []) if len(p) >= 2]
+    if not multi_hop:
+        return None
 
-    if multi_hop:
-        path = max(multi_hop, key=len)
-        edge_map = {
-            (l["from"], l["to"]): l["relation"]
-            for l in result["links"]
-        }
-        parts = []
-        for i in range(len(path) - 1):
-            src = path[i]
-            dst = path[i + 1]
-            rel = RELATION_TEXT.get(edge_map.get((src, dst), ""), "led to")
-            if i == 0:
-                parts.append(f"{src} {rel} {dst}")
-            else:
-                parts.append(f"which {rel} {dst}")
-        return "Causal path detected: " + ", ".join(parts)
+    ranking = result.get("root_ranking", [])
+    if ranking:
+        top_root = ranking[0]["id"]
+        from_top = [p for p in multi_hop if p[0] == top_root]
+        if from_top:
+            return max(from_top, key=len)
 
-    if not result["links"]:
+    return max(multi_hop, key=len)
+
+
+def build_explanation(result: dict) -> str:
+    path = select_path(result)
+
+    if path is None:
         return "No causal relationships detected."
 
-    failures_by_id = {f["id"]: f for f in result["failures"]}
+    edge_map = {
+        (l["from"], l["to"]): l["relation"]
+        for l in result["links"]
+    }
+
     parts = []
-    for link in result["links"]:
-        src = link["from"]
-        dst = link["to"]
-        src_signals = failures_by_id.get(src, {}).get("signals", {})
-        active_signals = [k for k, v in src_signals.items() if v]
-        if active_signals:
-            parts.append(f"{src} {link['relation']} {dst} ({', '.join(active_signals)})")
+    for i in range(len(path) - 1):
+        src = path[i]
+        dst = path[i + 1]
+        rel = RELATION_TEXT.get(edge_map.get((src, dst), ""), "led to")
+        if i == 0:
+            parts.append(f"{src} {rel} {dst}")
         else:
-            parts.append(f"{src} {link['relation']} {dst}")
-    return "Causal relationships detected: " + "; ".join(parts)
+            parts.append(f"which {rel} {dst}")
+
+    return "Causal path detected: " + ", ".join(parts)
 
 
 def format_output(result: dict) -> dict:
     return {
         "root_candidates": result["roots"],
-        "failures": result["failures"],
-        "causal_links": result["links"],
-        "causal_paths": result.get("paths", []),
-        "explanation": build_explanation(result),
+        "root_ranking":    result.get("root_ranking", []),
+        "failures":        result["failures"],
+        "causal_links":    result["links"],
+        "causal_paths":    result.get("paths", []),
+        "explanation":     build_explanation(result),
     }
