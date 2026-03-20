@@ -1,333 +1,343 @@
 """
-execute_fix.py
+evaluate_fix.py
 
-Phase 17: Fix Execution Layer.
+Phase 18: Before/after evaluation and regression detection.
 
-Pipeline:
-  autofix output → dependency resolver → ordering → validation → staged apply
+Performs deterministic counterfactual evaluation:
+  1) What failures exist now (before)
+  2) If fixes were applied, what would remain (after)
+  3) Delta metrics + regression detection
+  4) Keep or rollback decision
 
-Modes:
-  --plan    Show execution plan (ordered, validated)
-  --apply   Staged apply (write patch files to patches/ directory)
-  --rollback  Restore from snapshot
-
-Safety:
-  All applies save a snapshot first for rollback.
+Usage:
+  python evaluate_fix.py debugger_output.json autofix.json
+  python evaluate_fix.py debugger_output.json autofix.json --json-only
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 
-from fix_templates import AUTOFIX_MAP
+from execute_fix import build_execution_plan
+from graph_loader import load_graph
+
+
+DEBUGGER_DIR = Path(__file__).parent
+GRAPH_PATH = DEBUGGER_DIR / "failure_graph.yaml"
 
 
 # ---------------------------------------------------------------------------
-# Fix type ordering
+# Helpers
 # ---------------------------------------------------------------------------
 
-FIX_TYPE_ORDER = {
-    "prompt_patch":   0,
-    "config_patch":   1,
-    "guard_patch":    2,
-    "workflow_patch":  3,
-}
+def _failure_ids(output: dict) -> set[str]:
+    return {f["id"] for f in output.get("failures", [])}
 
 
-# ---------------------------------------------------------------------------
-# Dependency resolver (from graph structure in fix_templates)
-# ---------------------------------------------------------------------------
+def _descendants(graph: dict, start: str) -> set[str]:
+    """All downstream nodes reachable from start via graph edges."""
+    forward = {}
+    for e in graph.get("edges", []):
+        forward.setdefault(e["from"], []).append(e["to"])
 
-# Static dependency: upstream fixes should be applied before downstream.
-# Derived from the causal graph's edge direction.
-FIX_DEPENDENCY = {
-    "semantic_cache_intent_bleeding": ["premature_model_commitment"],
-    "prompt_injection_via_retrieval": ["premature_model_commitment", "instruction_priority_inversion"],
-    "rag_retrieval_drift": [
-        "semantic_cache_intent_bleeding",
-        "prompt_injection_via_retrieval",
-        "context_truncation_loss",
-    ],
-    "agent_tool_call_loop": ["premature_model_commitment"],
-    "tool_result_misinterpretation": ["agent_tool_call_loop"],
-    "repair_strategy_failure": ["premature_model_commitment"],
-    "incorrect_output": ["rag_retrieval_drift"],
-    "premature_model_commitment": ["assumption_invalidation_failure"],
-    "assumption_invalidation_failure": ["clarification_failure"],
-}
+    seen = set()
+    stack = [start]
+    while stack:
+        node = stack.pop()
+        for nxt in forward.get(node, []):
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append(nxt)
+    return seen
 
 
-def _resolve_dependencies(patches: list[dict]) -> list[str]:
-    """
-    Topological sort of patch targets based on FIX_DEPENDENCY.
-    Handles transitive dependencies: if A→B→C and B is not in patches,
-    A is still ordered before C.
-    """
-    targets = {p["target_failure"] for p in patches}
+def _recompute_roots(graph: dict, active_ids: set[str]) -> list[str]:
+    """Active nodes with no active upstreams."""
+    backward = {}
+    for e in graph.get("edges", []):
+        backward.setdefault(e["to"], []).append(e["from"])
 
-    # Build transitive dependencies (only among active targets)
-    def find_upstream(fid: str, visited: set | None = None) -> set:
-        """Find all upstream targets transitively."""
-        if visited is None:
-            visited = set()
-        if fid in visited:
-            return set()
-        visited.add(fid)
-        result = set()
-        for dep in FIX_DEPENDENCY.get(fid, []):
-            if dep in targets:
-                result.add(dep)
-            # Continue searching upstream even if dep is not in targets
-            result |= find_upstream(dep, visited)
-        return result
-
-    deps = {}
-    for fid in targets:
-        deps[fid] = find_upstream(fid)
-
-    # Kahn's algorithm
-    in_degree = {fid: len(deps[fid]) for fid in targets}
-
-    queue = [fid for fid in targets if in_degree[fid] == 0]
-    ordered = []
-
-    while queue:
-        queue.sort(key=lambda fid: FIX_TYPE_ORDER.get(
-            next((p["fix_type"] for p in patches if p["target_failure"] == fid), "workflow_patch"), 3
-        ))
-        node = queue.pop(0)
-        ordered.append(node)
-
-        for fid in targets:
-            if node in deps.get(fid, set()):
-                deps[fid].discard(node)
-                in_degree[fid] -= 1
-                if in_degree[fid] == 0:
-                    queue.append(fid)
-
-    if len(ordered) != len(targets):
-        remaining = targets - set(ordered)
-        raise RuntimeError(f"Dependency cycle detected among: {remaining}")
-
-    return ordered
+    roots = []
+    for fid in active_ids:
+        upstreams = backward.get(fid, [])
+        if not any(u in active_ids for u in upstreams):
+            roots.append(fid)
+    return sorted(roots)
 
 
-# ---------------------------------------------------------------------------
-# Fix conflict detection
-# ---------------------------------------------------------------------------
-
-FIX_CONFLICTS = [
-    {
-        "group": "retrieval_control",
-        "members": [
-            "semantic_cache_intent_bleeding",
-            "prompt_injection_via_retrieval",
-            "context_truncation_loss",
-            "rag_retrieval_drift",
-        ],
-        "risk": "Multiple retrieval-layer patches may create overly restrictive filtering",
-    },
-]
+def _filter_paths(paths: list[list[str]], removed: set[str]) -> list[list[str]]:
+    return [p for p in paths if not any(node in removed for node in p)]
 
 
-def _detect_conflicts(patches: list[dict]) -> list[dict]:
-    """Detect potential conflicts between patches."""
-    targets = {p["target_failure"] for p in patches}
-    conflicts = []
-
-    for group in FIX_CONFLICTS:
-        active = [m for m in group["members"] if m in targets]
-        if len(active) >= 2:
-            conflicts.append({
-                "group": group["group"],
-                "active_patches": active,
-                "risk": group["risk"],
-            })
-
-    return conflicts
+def _longest_path(paths: list[list[str]]) -> list[str] | None:
+    if not paths:
+        return None
+    return max(paths, key=len)
 
 
-# ---------------------------------------------------------------------------
-# Safety validation
-# ---------------------------------------------------------------------------
-
-def _validate_plan(patches: list[dict], order: list[str]) -> dict:
-    """Pre-apply safety validation."""
-    warnings = []
-
-    # Check all patches have valid fix_type
-    for p in patches:
-        if p["fix_type"] not in FIX_TYPE_ORDER:
-            warnings.append(f"Unknown fix_type: {p['fix_type']} for {p['target_failure']}")
-
-    # Check review requirements
-    needs_review = [p for p in patches if p.get("review_required")]
-    if needs_review:
-        targets = [p["target_failure"] for p in needs_review]
-        warnings.append(f"Patches requiring human review: {targets}")
-
-    # Check conflicts
-    conflicts = _detect_conflicts(patches)
-    if conflicts:
-        for c in conflicts:
-            warnings.append(
-                f"Potential conflict in {c['group']}: {c['active_patches']}. "
-                f"Risk: {c['risk']}"
-            )
-
+def _summarize(data: dict) -> dict:
+    failures = data.get("failures", [])
+    primary = data.get("primary_path") or []
     return {
-        "safe": len(warnings) == 0,
-        "warnings": warnings,
-        "conflicts": conflicts,
+        "failure_ids": [f["id"] for f in failures],
+        "failure_count": len(failures),
+        "root_count": len(data.get("root_candidates", [])),
+        "primary_path": primary,
+        "primary_path_length": len(primary),
+        "conflict_count": len(data.get("conflicts", [])),
     }
 
 
 # ---------------------------------------------------------------------------
-# Execution plan
+# Counterfactual simulation
 # ---------------------------------------------------------------------------
 
-def build_execution_plan(autofix_output: dict) -> dict:
+def simulate_after_state(before: dict, autofix_output: dict,
+                         graph: dict) -> dict:
     """
-    Build an ordered, validated execution plan from autofix output.
+    Simulate the system state after fixes are applied.
+
+    Strategy:
+      1. Identify which failures the fixes target
+      2. Remove those failures AND their downstream descendants
+         (if a root is removed, its entire subtree is removed)
+      3. Recompute roots, paths, and conflicts for remaining failures
     """
-    patches = autofix_output.get("recommended_fixes", [])
-    if not patches:
-        return {
-            "execution_plan": [],
-            "validation": {"safe": True, "warnings": [], "conflicts": []},
-        }
+    import copy
+    after = copy.deepcopy(before)
 
-    order = _resolve_dependencies(patches)
-    validation = _validate_plan(patches, order)
+    # Targeted failures
+    targeted = set()
+    for fix in autofix_output.get("recommended_fixes", []):
+        targeted.add(fix["target_failure"])
 
-    # Build ordered plan
-    patch_map = {p["target_failure"]: p for p in patches}
-    plan = []
-    for i, fid in enumerate(order):
-        p = patch_map[fid]
-        plan.append({
-            "order": i + 1,
-            "target_failure": fid,
-            "fix_type": p["fix_type"],
-            "target": p["target"],
-            "patch": p["patch"],
-            "safety": p["safety"],
-            "review_required": p.get("review_required", False),
+    # Compute full removal set: targeted + their descendants
+    removed = set()
+    for t in targeted:
+        removed.add(t)
+        removed |= _descendants(graph, t)
+
+    # Only remove failures that are actually active
+    active_ids = _failure_ids(before)
+    actually_removed = removed & active_ids
+
+    # Filter failures
+    after["failures"] = [
+        f for f in after.get("failures", [])
+        if f["id"] not in actually_removed
+    ]
+
+    # Update root_candidates
+    remaining_ids = _failure_ids(after)
+    after["root_candidates"] = _recompute_roots(graph, remaining_ids)
+
+    # Update root_ranking (keep only remaining)
+    after["root_ranking"] = [
+        r for r in after.get("root_ranking", [])
+        if r["id"] in remaining_ids
+    ]
+
+    # Update causal_paths
+    old_paths = after.get("causal_paths", [])
+    after["causal_paths"] = _filter_paths(old_paths, actually_removed)
+
+    # Update primary_path
+    remaining_paths = after["causal_paths"]
+    after["primary_path"] = _longest_path(remaining_paths) or []
+
+    # Update alternative_paths
+    primary = after["primary_path"]
+    after["alternative_paths"] = [
+        p for p in remaining_paths if p != primary
+    ]
+
+    # Update causal_links
+    after["causal_links"] = [
+        link for link in after.get("causal_links", [])
+        if link["from"] not in actually_removed
+        and link["to"] not in actually_removed
+    ]
+
+    # Update conflicts (remove groups where members were removed)
+    new_conflicts = []
+    for c in after.get("conflicts", []):
+        if c.get("winner") in actually_removed:
+            continue
+        remaining_suppressed = [
+            s for s in c.get("suppressed", [])
+            if s not in actually_removed
+        ]
+        if remaining_suppressed:
+            new_conflicts.append({
+                **c,
+                "suppressed": remaining_suppressed,
+            })
+    after["conflicts"] = new_conflicts
+
+    return after
+
+
+# ---------------------------------------------------------------------------
+# Delta computation
+# ---------------------------------------------------------------------------
+
+def compute_delta(before: dict, after: dict) -> dict:
+    """Compute the difference between before and after states."""
+    b = _summarize(before)
+    a = _summarize(after)
+
+    mitigated = set(b["failure_ids"]) - set(a["failure_ids"])
+    remaining = set(a["failure_ids"])
+    new_failures = set(a["failure_ids"]) - set(b["failure_ids"])
+
+    return {
+        "failure_count_delta": a["failure_count"] - b["failure_count"],
+        "root_count_delta": a["root_count"] - b["root_count"],
+        "primary_path_length_delta": a["primary_path_length"] - b["primary_path_length"],
+        "conflict_count_delta": a["conflict_count"] - b["conflict_count"],
+        "mitigated_failures": sorted(mitigated),
+        "remaining_failures": sorted(remaining),
+        "new_failures": sorted(new_failures),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Regression detection
+# ---------------------------------------------------------------------------
+
+def detect_regressions(before: dict, after: dict, delta: dict) -> list[dict]:
+    regressions = []
+
+    if delta["new_failures"]:
+        regressions.append({
+            "type": "new_failure_introduced",
+            "severity": "hard",
+            "detail": f"New failures appeared: {delta['new_failures']}",
         })
 
-    return {
-        "execution_plan": plan,
-        "validation": validation,
-    }
+    if delta["failure_count_delta"] > 0:
+        regressions.append({
+            "type": "failure_count_increase",
+            "severity": "hard",
+            "detail": f"Failure count increased by {delta['failure_count_delta']}",
+        })
+
+    if delta["primary_path_length_delta"] > 0:
+        regressions.append({
+            "type": "path_length_increase",
+            "severity": "soft",
+            "detail": f"Primary path became longer by {delta['primary_path_length_delta']}",
+        })
+
+    if delta["conflict_count_delta"] > 0:
+        regressions.append({
+            "type": "conflict_increase",
+            "severity": "soft",
+            "detail": f"Conflict count increased by {delta['conflict_count_delta']}",
+        })
+
+    # Check if root was mitigated
+    b_roots = set(before.get("root_candidates", []))
+    a_roots = set(after.get("root_candidates", []))
+    if b_roots and b_roots == a_roots and delta["failure_count_delta"] == 0:
+        regressions.append({
+            "type": "no_effect",
+            "severity": "soft",
+            "detail": "Fix had no observable effect on failure state",
+        })
+
+    return regressions
 
 
 # ---------------------------------------------------------------------------
-# Staged apply
+# Decision
 # ---------------------------------------------------------------------------
 
-def save_snapshot(patches: list[dict], snapshot_path: str = "snapshot.json"):
-    """Save pre-apply snapshot for rollback."""
-    snapshot = {
-        "patches_applied": [p["target_failure"] for p in patches],
-        "original_state": "captured_before_apply",
-    }
-    with open(snapshot_path, "w") as f:
-        json.dump(snapshot, f, indent=2)
-    return snapshot_path
-
-
-def staged_apply(execution_plan: dict, output_dir: str = "patches"):
+def decide_keep_or_rollback(regressions: list[dict]) -> str:
     """
-    Write patch files to output directory.
-    Saves snapshot first for rollback capability.
+    hard regression → rollback
+    soft regression only → review
+    no regression → keep
     """
-    patches = execution_plan.get("execution_plan", [])
-    if not patches:
-        print("No patches to apply.")
-        return
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Save snapshot
-    snapshot_path = os.path.join(output_dir, "snapshot.json")
-    save_snapshot(patches, snapshot_path)
-
-    # Write ordered patch files
-    for p in patches:
-        fname = f"{p['order']:02d}_{p['target_failure']}.json"
-        path = os.path.join(output_dir, fname)
-        with open(path, "w") as f:
-            json.dump(p, f, indent=2)
-
-    # Write execution manifest
-    manifest = {
-        "total_patches": len(patches),
-        "order": [p["target_failure"] for p in patches],
-        "snapshot": snapshot_path,
-    }
-    manifest_path = os.path.join(output_dir, "manifest.json")
-    with open(manifest_path, "w") as f:
-        json.dump(manifest, f, indent=2)
-
-    return manifest
+    if not regressions:
+        return "keep"
+    if any(r["severity"] == "hard" for r in regressions):
+        return "rollback"
+    return "review"
 
 
 # ---------------------------------------------------------------------------
 # Display
 # ---------------------------------------------------------------------------
 
-def display_plan(plan: dict):
-    """Pretty-print execution plan."""
-    print("\n=== EXECUTION PLAN ===\n")
+def display_report(report: dict):
+    print("\n=== PHASE 18: BEFORE / AFTER EVALUATION ===\n")
 
-    for step in plan.get("execution_plan", []):
-        review = " [REVIEW REQUIRED]" if step["review_required"] else ""
-        print(f"  Step {step['order']}: {step['target_failure']}")
-        print(f"    Type:   {step['fix_type']}")
-        print(f"    Target: {step['target']}")
-        print(f"    Safety: {step['safety']}{review}")
-        print()
+    b = report["before"]
+    a = report["after"]
+    d = report["delta"]
 
-    v = plan.get("validation", {})
-    print(f"=== VALIDATION: {'SAFE' if v.get('safe') else 'WARNINGS'} ===")
-    for w in v.get("warnings", []):
-        print(f"  ⚠ {w}")
-    if not v.get("warnings"):
-        print("  No warnings.")
+    print(f"Before: {b['failure_count']} failures, {b['root_count']} roots, "
+          f"path length {b['primary_path_length']}, {b['conflict_count']} conflicts")
+    print(f"After:  {a['failure_count']} failures, {a['root_count']} roots, "
+          f"path length {a['primary_path_length']}, {a['conflict_count']} conflicts")
+
+    print(f"\nMitigated: {d['mitigated_failures']}")
+    print(f"Remaining: {d['remaining_failures']}")
+    if d["new_failures"]:
+        print(f"NEW (regression): {d['new_failures']}")
+
+    print(f"\nDelta: failures={d['failure_count_delta']:+d} "
+          f"roots={d['root_count_delta']:+d} "
+          f"path={d['primary_path_length_delta']:+d} "
+          f"conflicts={d['conflict_count_delta']:+d}")
+
+    print("\nRegressions:")
+    if report["regressions"]:
+        for r in report["regressions"]:
+            marker = "!!!" if r["severity"] == "hard" else "..."
+            print(f"  {marker} [{r['severity']}] {r['type']}: {r['detail']}")
+    else:
+        print("  None detected.")
+
+    print(f"\nDecision: {report['decision'].upper()}")
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Main
 # ---------------------------------------------------------------------------
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
 
-    input_path = args[0] if args else "autofix.json"
-    mode_plan = "--plan" in flags
-    mode_apply = "--apply" in flags
+    if len(args) < 2:
+        print("Usage: python evaluate_fix.py debugger_output.json autofix.json [--json-only]")
+        sys.exit(1)
 
-    with open(input_path) as f:
+    with open(args[0]) as f:
+        before = json.load(f)
+    with open(args[1]) as f:
         autofix_output = json.load(f)
 
-    plan = build_execution_plan(autofix_output)
+    graph = load_graph(str(GRAPH_PATH))
+    after = simulate_after_state(before, autofix_output, graph)
+    delta = compute_delta(before, after)
+    regressions = detect_regressions(before, after, delta)
+    decision = decide_keep_or_rollback(regressions)
 
-    if mode_apply:
-        display_plan(plan)
-        if not plan["validation"]["safe"]:
-            print("\n⚠ Warnings detected. Review before applying.")
-        manifest = staged_apply(plan)
-        if manifest:
-            print(f"\n=== STAGED APPLY COMPLETE ===")
-            print(f"  Patches written to: patches/")
-            print(f"  Manifest: patches/manifest.json")
-            print(f"  Snapshot: patches/snapshot.json")
-    elif mode_plan:
-        display_plan(plan)
+    report = {
+        "before": _summarize(before),
+        "after": _summarize(after),
+        "delta": delta,
+        "regressions": regressions,
+        "decision": decision,
+    }
+
+    if "--json-only" in flags:
+        print(json.dumps(report, indent=2))
     else:
-        print(json.dumps(plan, indent=2))
+        display_report(report)
 
 
 if __name__ == "__main__":
