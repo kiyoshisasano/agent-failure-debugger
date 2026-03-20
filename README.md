@@ -97,7 +97,7 @@ fix_result = run_fix(diag, use_learning=True, top_k=2)
 ## Pipeline
 
 ```
-matcher_output.json   (produced by llm-failure-atlas matcher.py)
+matcher_output.json   (produced by llm-failure-atlas matcher)
   → main.py             causal resolution + root ranking
   → abstraction.py      top-k path selection + clustering
   → explainer.py        deterministic draft + optional LLM smoothing
@@ -118,7 +118,7 @@ This tool expects matcher output as input. The matcher converts logs into detect
 log → signals → failure detection (matcher)
 ```
 
-A reference matcher implementation is provided in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas). This repository does not perform detection — only causal interpretation and fix generation.
+Pattern definitions are maintained in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `failures/*.yaml`. Pre-generated `matcher_output.json` files are available in each `examples/` directory for immediate use.
 
 ---
 
@@ -196,6 +196,8 @@ Hard blockers (override score, force proposal_only):
 
 ## File Structure
 
+**Core pipeline:**
+
 | File | Responsibility |
 |---|---|
 | `pipeline.py` | API entry point (recommended) |
@@ -214,7 +216,36 @@ Hard blockers (override score, force proposal_only):
 | `evaluate_fix.py` | Counterfactual simulation + regression detection |
 | `auto_apply.py` | Confidence gate + auto-apply + rollback |
 | `policy_loader.py` | Read-only access to learning stores |
-| `failure_graph.yaml` | Causal graph (synced from Atlas) |
+
+**CLI wrappers:**
+
+| File | Wraps |
+|---|---|
+| `explain.py` | `explainer.py` |
+| `summarize.py` | `abstraction.py` |
+| `advise.py` | `decision_support.py` |
+| `apply_fix.py` | `execute_fix.py` (dry-run display) |
+
+**Data:**
+
+| File | Note |
+|---|---|
+| `failure_graph.yaml` | Causal graph (canonical source is Atlas; see below) |
+| `templates/` | Prompt templates for LLM-based explanation |
+
+---
+
+## Graph Sync
+
+`failure_graph.yaml` exists in both repositories. The **canonical source** is always `llm-failure-atlas/failure_graph.yaml`. The copy in this repository must be kept in sync manually.
+
+To verify sync:
+
+```bash
+diff failure_graph.yaml ../llm-failure-atlas/failure_graph.yaml
+```
+
+If you set `ATLAS_ROOT`, `config.py` can resolve the Atlas graph path directly.
 
 ---
 
@@ -269,22 +300,15 @@ PLD provides the behavioral stability framework. This tool provides the causal d
 
 ## Reproducible Examples
 
-`examples/simple/` contains a complete pipeline trace:
-
-```
-examples/simple/
-├── log.json                        # input telemetry
-├── matcher_output.json             # matcher output
-└── expected_debugger_output.json   # expected debugger output
-```
+10 examples are maintained in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `examples/`. Each contains `log.json`, `matcher_output.json`, and `expected_debugger_output.json`.
 
 Run and compare:
 
 ```bash
-python main.py examples/simple/matcher_output.json
+python main.py ../llm-failure-atlas/examples/simple/matcher_output.json
 ```
 
-Output should match `expected_debugger_output.json` exactly. 10 example scenarios are available covering linear chains, branching, competing causes, multi-root, and conflict resolution.
+Output should match `expected_debugger_output.json` exactly.
 
 ---
 
