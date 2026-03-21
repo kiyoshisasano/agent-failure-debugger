@@ -123,6 +123,25 @@ If `evaluation_runner` is not provided, the built-in counterfactual simulation i
 
 ## Pipeline
 
+```mermaid
+flowchart LR
+    Log[(Raw Agent Log)] --> Adapter[Adapter<br>Phase 24]
+    Adapter --> Telemetry[Matcher Input<br>Telemetry]
+    Telemetry --> Matcher[matcher.py<br>Detection]
+    Matcher --> Graph[(Failure Graph<br>Atlas)]
+    Graph --> Debugger[Debugger Pipeline<br>Fix & Auto-apply]
+    
+    classDef data fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#000;
+    classDef process fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000;
+    classDef atlas fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,color:#000;
+    
+    class Log,Telemetry data;
+    class Adapter,Matcher process;
+    class Graph,Debugger atlas;
+```
+
+Debugger internal steps:
+
 ```
 matcher_output.json   (produced by llm-failure-atlas matcher)
   → main.py             causal resolution + root ranking
