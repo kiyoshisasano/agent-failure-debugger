@@ -138,6 +138,21 @@ def run_fix(debugger_output: dict,
 
 
 # ---------------------------------------------------------------------------
+# Evaluation runner support (Phase 25-lite)
+# ---------------------------------------------------------------------------
+
+def _decision_from_runner_result(result: dict) -> str:
+    """
+    Convert external evaluation runner result to keep/review/rollback decision.
+    """
+    if result.get("has_hard_regression"):
+        return "rollback"
+    if not result.get("success", False):
+        return "review"
+    return "keep"
+
+
+# ---------------------------------------------------------------------------
 # Full pipeline
 # ---------------------------------------------------------------------------
 
@@ -145,7 +160,8 @@ def run_pipeline(matcher_output: list[dict],
                  use_learning: bool = False,
                  top_k: int = 1,
                  auto_apply: bool = False,
-                 include_abstraction: bool = False) -> dict:
+                 include_abstraction: bool = False,
+                 evaluation_runner=None) -> dict:
     """
     Run the complete pipeline: diagnosis → fix → evaluation.
 
@@ -157,6 +173,11 @@ def run_pipeline(matcher_output: list[dict],
         top_k: Number of fixes to generate.
         auto_apply: If True and gate passes, execute fixes automatically.
         include_abstraction: Include abstraction layer output.
+        evaluation_runner: Optional callback for external evaluation.
+            If provided and auto_apply gate passes, this function is called
+            instead of the built-in counterfactual simulation.
+            Signature: evaluation_runner(patch_bundle: dict) -> dict
+            Must return: {success, failure_count, root, has_hard_regression, notes}
 
     Returns:
         Dict with: diagnosis, abstraction (optional), fix, summary.
@@ -171,6 +192,15 @@ def run_pipeline(matcher_output: list[dict],
         'premature_model_commitment'
         >>> print(result["summary"]["gate_mode"])
         'auto_apply'
+
+    Example with evaluation_runner:
+        >>> def my_runner(bundle):
+        ...     # Run fixes in your staging environment
+        ...     return {"success": True, "failure_count": 0,
+        ...             "root": None, "has_hard_regression": False,
+        ...             "notes": "passed staging tests"}
+        >>> result = run_pipeline(matcher_output, auto_apply=True,
+        ...                       evaluation_runner=my_runner)
     """
     # Step 1: Diagnosis
     diagnosis = run_diagnosis(matcher_output)
@@ -185,8 +215,37 @@ def run_pipeline(matcher_output: list[dict],
         diagnosis,
         use_learning=use_learning,
         top_k=top_k,
-        auto_apply=auto_apply,
+        auto_apply=False,  # handle auto_apply here with runner support
     )
+
+    # Step 3b: Auto-apply with evaluation_runner support (Phase 25-lite)
+    if auto_apply and fix_result["gate"]["gate"]["mode"] == "auto_apply":
+        if evaluation_runner is not None:
+            # External evaluation: delegate to user's environment
+            runner_input = {
+                "autofix": fix_result["autofix"],
+                "execution_plan": fix_result["execution_plan"],
+                "diagnosis_summary": {
+                    "root_cause": (diagnosis["root_ranking"][0]["id"]
+                                   if diagnosis.get("root_ranking") else "unknown"),
+                    "failure_count": len(diagnosis.get("failures", [])),
+                },
+            }
+            runner_result = evaluation_runner(runner_input)
+            fix_result["gate"]["post_apply"] = {
+                "evaluation_mode": "runner",
+                "runner_result": runner_result,
+                "evaluation_decision": _decision_from_runner_result(runner_result),
+                "rollback_executed": runner_result.get("has_hard_regression", False),
+            }
+        else:
+            # Built-in counterfactual evaluation
+            graph = load_graph(str(GRAPH_PATH))
+            apply_result = maybe_apply(
+                fix_result["gate"], diagnosis, fix_result["autofix"],
+                fix_result["execution_plan"], graph
+            )
+            fix_result["gate"] = apply_result
 
     # Step 4: Summary
     root = diagnosis["root_ranking"][0] if diagnosis.get("root_ranking") else {}
