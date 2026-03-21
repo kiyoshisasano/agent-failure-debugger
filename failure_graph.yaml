@@ -288,3 +288,27 @@ edges:
         - output_misaligned_with_intent
       note: >
         Observable edge. Both nodes are now diagnosable.
+
+
+# Relationships define semantic constraints between failures.
+# These are NOT used for diagnosis — only for explanation and conflict resolution.
+#
+# mode:
+#   soft  → both can be diagnosed, but scoring favors one over others
+#   hard  → mutual exclusion enforced (future)
+
+relationships:
+
+  - type: exclusivity
+    group: retrieval_root_conflict
+    failures:
+      - semantic_cache_intent_bleeding
+      - prompt_injection_via_retrieval
+      - context_truncation_loss
+    mode: soft
+    note: >
+      These three failures represent competing upstream causes of
+      rag_retrieval_drift: semantic misuse (SCIB), adversarial content
+      (prompt injection), and information loss (truncation).
+      When multiple are active, the highest-scoring path is primary
+      and others are suppressed to alternative status.
