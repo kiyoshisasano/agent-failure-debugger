@@ -92,6 +92,33 @@ diag = run_diagnosis(matcher_output)
 fix_result = run_fix(diag, use_learning=True, top_k=2)
 ```
 
+### External Evaluation (Phase 25-lite)
+
+You can plug in your own test environment for fix evaluation:
+
+```python
+def my_staging_test(bundle):
+    """Run fixes in your staging environment."""
+    fixes = bundle["autofix"]["recommended_fixes"]
+    # ... apply fixes in your own test/staging env ...
+    return {
+        "success": True,
+        "failure_count": 0,
+        "root": None,
+        "has_hard_regression": False,
+        "notes": f"applied {len(fixes)} fixes in staging"
+    }
+
+result = run_pipeline(
+    matcher_output,
+    use_learning=True,
+    auto_apply=True,
+    evaluation_runner=my_staging_test,
+)
+```
+
+If `evaluation_runner` is not provided, the built-in counterfactual simulation is used. If provided and the gate passes, your function is called instead.
+
 ---
 
 ## Pipeline
