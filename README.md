@@ -252,7 +252,7 @@ Hard blockers (override score, force proposal_only):
 | `graph_loader.py` | Load failure_graph.yaml, exclude planned nodes |
 | `causal_resolver.py` | normalize → roots → paths → ranking |
 | `formatter.py` | Path scoring + conflict resolution + evidence |
-| `labels.py` | SIGNAL_MAP (22 entries) + FAILURE_MAP (12 entries) |
+| `labels.py` | SIGNAL_MAP (28 entries) + FAILURE_MAP (15 entries) |
 | `abstraction.py` | Top-k path selection + clustering |
 | `explainer.py` | Deterministic draft + optional LLM smoothing |
 | `decision_support.py` | Failure → action mapping + priority scoring |
