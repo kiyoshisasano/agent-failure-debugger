@@ -112,6 +112,35 @@ nodes:
       The system produces output that is misaligned with user intent
       or requires user correction. Terminal node in the causal graph.
 
+  # --- Meta failures (model limitations, not domain failures) ---
+
+  - id: unmodeled_failure
+    role: meta
+    layer: meta
+    status: defined
+    note: >
+      Symptoms are present (low alignment, user correction) but no
+      defined failure pattern was diagnosed. Indicates a failure outside
+      the current taxonomy. Not part of the causal graph.
+
+  - id: insufficient_observability
+    role: meta
+    layer: meta
+    status: defined
+    note: >
+      Telemetry is too incomplete for reliable diagnosis. Critical log
+      fields are missing. Distinguishes "no failure" from "cannot determine."
+      Not part of the causal graph.
+
+  - id: conflicting_signals
+    role: meta
+    layer: meta
+    status: defined
+    note: >
+      Observed signals point in contradictory directions, reducing
+      confidence in any single diagnosis. Flags cases that need review.
+      Not part of the causal graph.
+
 
 edges:
 
