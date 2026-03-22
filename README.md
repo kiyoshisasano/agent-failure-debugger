@@ -350,13 +350,13 @@ This tool depends on [LLM Failure Atlas](https://github.com/kiyoshisasano/llm-fa
 
 [Phase Loop Dynamics (PLD)](https://github.com/kiyoshisasano/agent-pld-metrics) is a runtime governance layer that stabilizes multi-turn LLM agent execution through the loop: **Drift → Repair → Reentry → Continue → Outcome**.
 
-This tool is **not a PLD runtime**. It implements a **single control step** within the PLD loop — the post-incident causal analysis and intervention decision.
+This tool is **not a PLD runtime**. It implements a **single control step spanning analysis, intervention, and evaluation** within the PLD loop — the post-incident causal analysis and intervention decision.
 
 **How this pipeline maps to PLD concepts:**
 
-- **Drift:** Root causes approximate drift sources. `root_ranking` identifies the most impactful failure, but does not directly measure real-time misalignment.
+- **Drift:** Root causes provide a structural explanation of drift after it has been detected. `root_ranking` identifies the most impactful failure, but does not directly measure real-time misalignment.
 - **Repair:** `autofix` generates fixes and `auto_apply` gate governs intervention decisions (`decision_support` → `autofix` → `auto_apply`). These produce structured proposals that PLD Repair strategies can consume.
-- **Reentry / Continue:** `evaluate_fix` provides before/after assessment (implicit reentry check). Explicit re-verification and task resumption are external to this pipeline.
+- **Reentry / Continue:** `evaluate_fix` provides a structural reentry check (before/after comparison, not full task-level reentry validation). Explicit re-verification and task resumption are external to this pipeline.
 - **Outcome:** Refers to intervention results (keep / review / rollback), not full session termination states as defined by PLD.
 
 **System state** is defined by the set of active failures and their causal relationships. The pipeline transforms this state through a single pass, not a multi-turn loop.
