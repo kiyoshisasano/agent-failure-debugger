@@ -309,6 +309,23 @@ All settings (scoring weights, gate thresholds, KPI targets) are centralized in 
 
 ---
 
+## What This Is
+
+This tool is a **deterministic causal debugging pipeline** — not an ML-based anomaly detector.
+
+- **Deterministic:** Same matcher output always produces the same root cause, causal path, fix, and gate decision. The core pipeline uses no LLM inference (LLM is optional, for explanation smoothing only).
+- **Causal, not statistical:** Root ranking uses graph structure and confidence scores, not learned weights or embeddings.
+- **Consistent over correct:** The system guarantees a *consistent explanation* within its formal structure. It finds the best-supported root cause given the defined causal graph — not necessarily the "true" cause.
+
+Key implications:
+
+- Root cause ranking is reproducible and auditable
+- Auto-apply decisions are governed by a deterministic confidence gate, not LLM judgment
+- The evaluate_fix stage applies a structural intervention model: targeted failures and all their downstream descendants are removed from the causal graph, and the system state is recomputed
+- Learning adjusts *weights*, never *structure* (patterns, graph, and templates are never auto-modified)
+
+---
+
 ## Design Principles
 
 - **Graph is not used for diagnosis** — only for causal interpretation
