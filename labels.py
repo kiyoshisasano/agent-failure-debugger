@@ -47,6 +47,17 @@ FAILURE_MAP = {
 
     "incorrect_output":
         "the system produced output misaligned with user intent, requiring correction",
+
+    # --- Meta failures (model limitations) ---
+
+    "unmodeled_failure":
+        "symptoms are present but no defined failure pattern explains them",
+
+    "insufficient_observability":
+        "telemetry is too incomplete for reliable diagnosis",
+
+    "conflicting_signals":
+        "observed signals point in contradictory directions, reducing diagnostic confidence",
 }
 
 SIGNAL_MAP = {
@@ -128,4 +139,27 @@ SIGNAL_MAP = {
 
     "user_correction_required":
         "the user had to correct the system output",
+
+    # --- Meta signals (model limitation indicators) ---
+
+    # unmodeled_failure
+    "symptoms_present_without_diagnosis":
+        "output is misaligned and user corrected, but no known pattern matched",
+
+    "no_known_pattern_matched":
+        "no defined failure pattern was diagnosed for this trace",
+
+    # insufficient_observability
+    "high_field_absence_rate":
+        "more than half of expected telemetry fields are missing",
+
+    "critical_fields_missing":
+        "a large number of expected fields are absent from the log",
+
+    # conflicting_signals
+    "cache_hit_with_intent_mismatch":
+        "cache reported a hit but intent similarity is very low",
+
+    "acceptable_alignment_but_user_corrected":
+        "response appeared aligned by metric but user still corrected",
 }
