@@ -315,13 +315,13 @@ This tool is a **deterministic causal debugging pipeline** — not an ML-based a
 
 - **Deterministic:** Same matcher output always produces the same root cause, causal path, fix, and gate decision. The core pipeline uses no LLM inference (LLM is optional, for explanation smoothing only).
 - **Causal, not statistical:** Root ranking uses graph structure and confidence scores, not learned weights or embeddings.
-- **Consistent over correct:** The system guarantees a *consistent explanation* within its formal structure. It finds the best-supported root cause given the defined causal graph — not necessarily the "true" cause.
+- **Consistent over correct:** The system produces a *structurally consistent explanation* under its scoring and resolution rules. It finds the best-supported root cause given the defined causal graph — not necessarily the "true" cause.
 
 Key implications:
 
 - Root cause ranking is reproducible and auditable
 - Auto-apply decisions are governed by a deterministic confidence gate, not LLM judgment
-- The evaluate_fix stage applies a structural intervention model: targeted failures and all their downstream descendants are removed from the causal graph, and the system state is recomputed
+- The evaluate_fix stage applies a deterministic structural intervention model, not an empirical simulation: targeted failures and all their downstream descendants are removed from the causal graph, and the system state is recomputed
 - Learning adjusts *weights*, never *structure* (patterns, graph, and templates are never auto-modified)
 
 ---
@@ -348,16 +348,22 @@ This tool depends on [LLM Failure Atlas](https://github.com/kiyoshisasano/llm-fa
 
 ## Relationship to PLD
 
-This tool is a concrete application of [Phase Loop Dynamics (PLD)](https://github.com/kiyoshisasano/agent-pld-metrics):
+[Phase Loop Dynamics (PLD)](https://github.com/kiyoshisasano/agent-pld-metrics) is a runtime governance layer that stabilizes multi-turn LLM agent execution through the loop: **Drift → Repair → Reentry → Continue → Outcome**.
 
-| PLD Phase | Debugger Output |
-|---|---|
-| Drift | Initiating failure in `root_candidates` |
-| Propagation | Downstream failures in `causal_paths` |
-| Repair | Fix generation + auto-apply gate |
-| Outcome | Leaf node / evaluation decision (keep/rollback) |
+This tool is **not a PLD runtime**. It implements a **single control step** within the PLD loop — the post-incident causal analysis and intervention decision.
 
-PLD provides the behavioral stability framework. This tool provides the causal diagnosis and remediation layer that operates within it.
+**How this pipeline maps to PLD concepts:**
+
+- **Drift:** Root causes approximate drift sources. `root_ranking` identifies the most impactful failure, but does not directly measure real-time misalignment.
+- **Repair:** `autofix` generates fixes and `auto_apply` gate governs intervention decisions (`decision_support` → `autofix` → `auto_apply`). These produce structured proposals that PLD Repair strategies can consume.
+- **Reentry / Continue:** `evaluate_fix` provides before/after assessment (implicit reentry check). Explicit re-verification and task resumption are external to this pipeline.
+- **Outcome:** Refers to intervention results (keep / review / rollback), not full session termination states as defined by PLD.
+
+**System state** is defined by the set of active failures and their causal relationships. The pipeline transforms this state through a single pass, not a multi-turn loop.
+
+**KPIs** (6 internal stability metrics) measure pipeline health and do not directly correspond to PLD operational metrics (PRDR, REI, VRL, MRBF, FR).
+
+This system functions as a control layer that governs intervention decisions within the PLD loop. PLD provides the runtime governance framework; this tool provides the causal analysis and remediation that operates within one step of it.
 
 ---
 
