@@ -344,6 +344,10 @@ This tool depends on [LLM Failure Atlas](https://github.com/kiyoshisasano/llm-fa
 - Node and edge definitions are maintained there
 - This tool does not define failures itself
 
+**Real-time integration:** The Atlas provides a [callback handler](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/adapters/callback_handler.py) that collects events during LangChain/LangGraph execution, builds telemetry via an observation layer, runs the matcher, and then feeds diagnosed failures into this pipeline — all automatically. See the Atlas README for callback usage and the observation layer design.
+
+**Tested with real agents:** The full callback → matcher → debugger pipeline has been verified with real LangGraph agents (OpenAI API). Three failure patterns have been detected on live agent runs: `incorrect_output`, `agent_tool_call_loop`, `clarification_failure`.
+
 ---
 
 ## Relationship to PLD
