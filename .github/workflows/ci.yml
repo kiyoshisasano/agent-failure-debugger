@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Clone llm-failure-atlas (for examples + graph)
+        run: |
+          cd ..
+          git clone https://github.com/kiyoshisasano/llm-failure-atlas.git
+          cd llm-failure-atlas
+          pip install -r requirements.txt
+
+      - name: Regression test (10 examples)
+        run: |
+          PASS=0
+          FAIL=0
+          for dir in ../llm-failure-atlas/examples/*/; do
+            name=$(basename "$dir")
+            mf="$dir/matcher_output.json"
+            ef="$dir/expected_debugger_output.json"
+            [ -f "$mf" ] && [ -f "$ef" ] || continue
+            python main.py "$mf" > /tmp/actual.json 2>&1
+            if diff <(python -m json.tool /tmp/actual.json) <(python -m json.tool "$ef") > /dev/null 2>&1; then
+              echo "PASS $name"
+              PASS=$((PASS+1))
+            else
+              echo "FAIL $name"
+              FAIL=$((FAIL+1))
+            fi
+          done
+          echo "Results: $PASS passed, $FAIL failed"
+          [ "$FAIL" -eq 0 ] || exit 1
+
+      - name: Pipeline test
+        run: |
+          python pipeline.py ../llm-failure-atlas/examples/simple/matcher_output.json --use-learning 2>&1 | tee /tmp/pipeline_out.txt
+          grep -q "Root cause:" /tmp/pipeline_out.txt || (echo "FAIL: pipeline did not produce root cause" && exit 1)
+          echo "OK: pipeline test passed"
+
+      - name: Graph sync check
+        run: |
+          python -c "
+          import yaml
+          local = yaml.safe_load(open('failure_graph.yaml', encoding='utf-8'))
+          remote = yaml.safe_load(open('../llm-failure-atlas/failure_graph.yaml', encoding='utf-8'))
+          local_nodes = {n['id'] for n in local['nodes']}
+          remote_nodes = {n['id'] for n in remote['nodes']}
+          if local_nodes != remote_nodes:
+              missing = remote_nodes - local_nodes
+              extra = local_nodes - remote_nodes
+              if missing: print(f'WARNING: missing from debugger: {missing}')
+              if extra: print(f'WARNING: extra in debugger: {extra}')
+              exit(1)
+          print(f'OK: graphs in sync ({len(local_nodes)} nodes)')
+          "
+
+      - name: Labels coverage check
+        run: |
+          python -c "
+          import yaml
+          from labels import FAILURE_MAP, SIGNAL_MAP
+          g = yaml.safe_load(open('failure_graph.yaml', encoding='utf-8'))
+          missing = [n['id'] for n in g['nodes'] if n['id'] not in FAILURE_MAP]
+          if missing:
+              print(f'FAIL: missing from FAILURE_MAP: {missing}')
+              exit(1)
+          print(f'OK: FAILURE_MAP covers all {len(g[\"nodes\"])} nodes')
+          "
