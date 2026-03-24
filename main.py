@@ -22,7 +22,7 @@ def main():
     input_path = sys.argv[1] if len(sys.argv) > 1 else "input.json"
     graph_path = sys.argv[2] if len(sys.argv) > 2 else "failure_graph.yaml"
 
-    with open(input_path) as f:
+    with open(input_path, encoding="utf-8") as f:
         matcher_output = json.load(f)
 
     graph = load_graph(graph_path)

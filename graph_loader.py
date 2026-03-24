@@ -11,7 +11,7 @@ import yaml
 
 
 def load_graph(path: str) -> dict:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     # Exclude planned nodes

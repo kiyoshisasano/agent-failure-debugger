@@ -31,7 +31,7 @@ def _load_json(filename: str) -> dict:
     """Load a JSON file from learning dir, returning {} on any failure."""
     path = os.path.join(LEARNING_DIR, filename)
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}

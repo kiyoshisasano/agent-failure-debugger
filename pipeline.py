@@ -294,7 +294,7 @@ def main():
         print("Usage: python pipeline.py matcher_output.json [--use-learning] [--top-k N] [--auto-apply]")
         sys.exit(1)
 
-    with open(args[0]) as f:
+    with open(args[0], encoding="utf-8") as f:
         matcher_output = json.load(f)
 
     top_k = 1
