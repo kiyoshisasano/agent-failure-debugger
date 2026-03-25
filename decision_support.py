@@ -106,6 +106,30 @@ ACTION_MAP = {
         "timeline": "immediate",
         "expected_effect": "Catches misaligned output before delivery to user",
     },
+
+    # --- Meta layer (model limitation indicators) ---
+
+    "unmodeled_failure": {
+        "action": "Flag trace for human review and pattern discovery",
+        "detail": "Symptoms were detected but no known pattern matched — log for taxonomy expansion",
+        "type": "escalation",
+        "timeline": "immediate",
+        "expected_effect": "Captures unknown failure modes for future pattern definition",
+    },
+    "insufficient_observability": {
+        "action": "Increase telemetry instrumentation",
+        "detail": "Critical fields are missing from agent logs — add adapter coverage or instrumentation",
+        "type": "infrastructure",
+        "timeline": "short_term",
+        "expected_effect": "Enables reliable diagnosis by providing required telemetry fields",
+    },
+    "conflicting_signals": {
+        "action": "Reduce diagnostic confidence and flag for review",
+        "detail": "Signals contradict each other — suppress auto-apply and escalate to human review",
+        "type": "escalation",
+        "timeline": "immediate",
+        "expected_effect": "Prevents incorrect fixes based on unreliable diagnosis",
+    },
 }
 
 
@@ -196,6 +220,14 @@ def generate_actions(debugger_output: dict,
     """
     failures = debugger_output.get("failures", [])
     primary = debugger_output.get("primary_path") or []
+
+    # Include meta failures: they appear in root_ranking but not in
+    # the failures list (no causal graph edges). Add them so they
+    # get action entries and can flow through autofix.
+    failure_ids_in_list = {f["id"] for f in failures}
+    for root in debugger_output.get("root_ranking", []):
+        if root["id"] not in failure_ids_in_list:
+            failures = list(failures) + [{"id": root["id"], "confidence": root.get("score", 0.5)}]
 
     # Build selected nodes set from abstraction (fix ②)
     selected_nodes = None

@@ -157,4 +157,62 @@ AUTOFIX_MAP = {
         },
         "safety": "high"
     },
+
+    # --- Meta layer (model limitations, not domain failures) ---
+    # These fixes improve observability and escalation,
+    # not the agent behavior itself.
+
+    "unmodeled_failure": {
+        "fix_type": "workflow_patch",
+        "target": "diagnosis_pipeline",
+        "patch": {
+            "action": "flag_for_review",
+            "log_unmatched_symptoms": True,
+            "escalate_to": "human_reviewer",
+            "note": (
+                "Symptoms were detected but no known failure pattern matched. "
+                "Review the trace to determine if a new failure pattern should "
+                "be added to the Atlas."
+            )
+        },
+        "safety": "medium"
+    },
+
+    "insufficient_observability": {
+        "fix_type": "config_patch",
+        "target": "telemetry_pipeline",
+        "patch": {
+            "action": "increase_instrumentation",
+            "required_fields": [
+                "input.ambiguity_score",
+                "interaction.clarification_triggered",
+                "interaction.user_correction_detected",
+                "reasoning.replanned",
+                "cache.hit",
+                "cache.similarity",
+                "retrieval.skipped",
+                "response.alignment_score"
+            ],
+            "note": (
+                "Too many expected telemetry fields are missing for reliable "
+                "diagnosis. Add instrumentation to the agent or adapter."
+            )
+        },
+        "safety": "medium"
+    },
+
+    "conflicting_signals": {
+        "fix_type": "workflow_patch",
+        "target": "diagnosis_pipeline",
+        "patch": {
+            "action": "flag_for_review",
+            "reduce_auto_apply_confidence": True,
+            "note": (
+                "Observed signals point in contradictory directions. "
+                "Diagnosis may be unreliable. Manual review recommended "
+                "before applying any fix."
+            )
+        },
+        "safety": "low"
+    },
 }
