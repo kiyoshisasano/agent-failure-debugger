@@ -35,7 +35,10 @@ ATLAS_ROOT = Path(os.environ.get(
 # ---------------------------------------------------------------------------
 
 # Debugger
-GRAPH_PATH = DEBUGGER_ROOT / "failure_graph.yaml"
+# Graph: canonical source is Atlas. Debugger's local copy is fallback only.
+_atlas_graph = ATLAS_ROOT / "failure_graph.yaml"
+_local_graph = DEBUGGER_ROOT / "failure_graph.yaml"
+GRAPH_PATH = _atlas_graph if _atlas_graph.exists() else _local_graph
 TEMPLATES_DIR = DEBUGGER_ROOT / "templates"
 
 # Atlas — learning stores
