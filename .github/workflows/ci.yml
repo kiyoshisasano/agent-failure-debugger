@@ -79,11 +79,28 @@ jobs:
         run: |
           python -c "
           import yaml
+          from pathlib import Path
           from labels import FAILURE_MAP, SIGNAL_MAP
+
+          # Check FAILURE_MAP covers all graph nodes
           g = yaml.safe_load(open('failure_graph.yaml', encoding='utf-8'))
-          missing = [n['id'] for n in g['nodes'] if n['id'] not in FAILURE_MAP]
-          if missing:
-              print(f'FAIL: missing from FAILURE_MAP: {missing}')
+          missing_failures = [n['id'] for n in g['nodes'] if n['id'] not in FAILURE_MAP]
+          if missing_failures:
+              print(f'FAIL: missing from FAILURE_MAP: {missing_failures}')
               exit(1)
           print(f'OK: FAILURE_MAP covers all {len(g[\"nodes\"])} nodes')
+
+          # Check SIGNAL_MAP covers all signals defined in Atlas YAMLs
+          atlas_dir = Path('../llm-failure-atlas/failures')
+          signals_in_yaml = set()
+          for f in sorted(atlas_dir.glob('*.yaml')):
+              p = yaml.safe_load(f.read_text(encoding='utf-8'))
+              for rule in p.get('signal_extraction', {}).get('rules', []):
+                  signals_in_yaml.add(rule['signal'])
+
+          missing_signals = signals_in_yaml - set(SIGNAL_MAP.keys())
+          if missing_signals:
+              print(f'FAIL: missing from SIGNAL_MAP: {sorted(missing_signals)}')
+              exit(1)
+          print(f'OK: SIGNAL_MAP covers all {len(signals_in_yaml)} signals')
           "
