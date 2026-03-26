@@ -4,11 +4,13 @@ explain.py — CLI for explanation generation (Phase 10).
 Usage:
   python explain.py [debugger_output.json]                  # LLM hybrid mode
   python explain.py --deterministic [debugger_output.json]  # No LLM, draft only
+  python explain.py --enhanced [debugger_output.json]       # Enhanced draft (no LLM)
   python explain.py --dry-run [debugger_output.json]        # Show prompt, don't call LLM
 
 Modes:
   default          Hybrid: deterministic draft + LLM smoothing (requires API key)
   --deterministic  Deterministic draft only (no API key needed)
+  --enhanced       Enhanced draft with context, interpretation, risk (no API key needed)
   --dry-run        Show the prompt that would be sent to the LLM
 """
 
@@ -29,6 +31,7 @@ def main():
 
     input_path = args[0] if args else "debugger_output.json"
     deterministic = "--deterministic" in flags
+    enhanced = "--enhanced" in flags
     dry_run = "--dry-run" in flags
 
     with open(input_path) as f:
@@ -46,8 +49,8 @@ def main():
             "user_prompt": user,
         }
         print(json.dumps(output, indent=2))
-    elif deterministic:
-        result = explain(debugger_output, use_llm=False)
+    elif deterministic or enhanced:
+        result = explain(debugger_output, use_llm=False, enhanced=enhanced)
         print(json.dumps(result, indent=2))
     else:
         result = explain(debugger_output)
