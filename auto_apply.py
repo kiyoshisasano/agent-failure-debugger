@@ -141,23 +141,41 @@ def _mode_from_score(score: float) -> str:
     return "proposal_only"
 
 
-def _score_reasons(score: float, fix: dict, root_confidence: float) -> list[str]:
+def _score_reasons(score: float, fix: dict, root_confidence: float,
+                   debugger_output: dict | None = None) -> list[str]:
     """Generate human-readable reasons for the gate decision."""
     reasons = []
+
+    # Safety
     if fix.get("safety") == "high":
-        reasons.append("high safety")
+        reasons.append("fix is safe to apply without risk")
+
+    # Effectiveness
     eff = fix.get("effectiveness_score", 0.0)
     if eff >= 0.8:
-        reasons.append("high effectiveness")
+        reasons.append("fix has strong track record of resolving this failure")
     elif eff >= 0.5:
-        reasons.append("good effectiveness")
+        reasons.append("fix has shown moderate effectiveness previously")
+
+    # Root confidence
     if root_confidence >= 0.8:
-        reasons.append("high root confidence")
+        reasons.append("root cause is identified with high confidence")
     elif root_confidence >= 0.6:
-        reasons.append("medium root confidence")
+        reasons.append("root cause is identified with moderate confidence")
+
+    # Priority
     ps = fix.get("priority_score", 0.0)
     if ps >= 0.8:
-        reasons.append("high priority")
+        reasons.append("this is the highest-priority fix to address")
+
+    # Grounding context (from diagnosed signals, no new input required)
+    if debugger_output is not None:
+        for failure in debugger_output.get("failures", []):
+            signals = failure.get("signals", {})
+            if signals.get("grounding_data_absent"):
+                reasons.append("output may lack reliable grounded data")
+                break
+
     return reasons
 
 
@@ -184,7 +202,7 @@ def gate_autofix(debugger_output: dict, autofix_output: dict,
         else:
             mode = _mode_from_score(score)
 
-        reasons = _score_reasons(score, fix, root_confidence)
+        reasons = _score_reasons(score, fix, root_confidence, debugger_output)
 
         fix_gates.append({
             "target_failure": fix["target_failure"],
