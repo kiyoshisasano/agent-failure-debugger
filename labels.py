@@ -140,6 +140,13 @@ SIGNAL_MAP = {
     "user_correction_required":
         "the user had to correct the system output",
 
+    # incorrect_output — grounding risk signals
+    "grounding_data_absent":
+        "tools returned no usable data but the agent produced a substantial response",
+
+    "grounding_gap_not_acknowledged":
+        "tools returned no usable data and the agent did not acknowledge the gap",
+
     # --- Meta signals (model limitation indicators) ---
 
     # unmodeled_failure
