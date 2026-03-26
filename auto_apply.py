@@ -85,7 +85,8 @@ def compute_auto_apply_score(fix: dict, debugger_output: dict,
 # Hard blockers
 # ---------------------------------------------------------------------------
 
-def check_hard_blockers(fix: dict, execution_plan: dict) -> list[str]:
+def check_hard_blockers(fix: dict, execution_plan: dict,
+                        debugger_output: dict | None = None) -> list[str]:
     """
     Return list of reasons this fix cannot be auto-applied.
     Empty list = no blockers.
@@ -112,6 +113,18 @@ def check_hard_blockers(fix: dict, execution_plan: dict) -> list[str]:
     if conflicts:
         groups = [c["group"] for c in conflicts]
         blockers.append(f"execution plan has conflicts: {groups}")
+
+    # Grounding signal check: if any diagnosed failure has
+    # grounding_gap_not_acknowledged, force human review.
+    if debugger_output is not None:
+        for failure in debugger_output.get("failures", []):
+            signals = failure.get("signals", {})
+            if signals.get("grounding_gap_not_acknowledged"):
+                blockers.append(
+                    "grounding gap not acknowledged — "
+                    "agent may have hallucinated without disclosure"
+                )
+                break
 
     return blockers
 
@@ -164,7 +177,7 @@ def gate_autofix(debugger_output: dict, autofix_output: dict,
 
     for fix in fixes:
         score = compute_auto_apply_score(fix, debugger_output, policies)
-        blockers = check_hard_blockers(fix, execution_plan)
+        blockers = check_hard_blockers(fix, execution_plan, debugger_output)
 
         if blockers:
             mode = "proposal_only"
@@ -220,13 +233,35 @@ def gate_autofix(debugger_output: dict, autofix_output: dict,
 # Rollback policy (Phase 21 refinement of evaluate_fix decisions)
 # ---------------------------------------------------------------------------
 
+# Phase 21 fix ①: type-based regression classification
+# Decouples from evaluate_fix's severity labels
+HARD_REGRESSION_TYPES = {
+    "new_failure_introduced",
+    "failure_count_increase",
+    "root_not_mitigated",
+}
+
+SOFT_REGRESSION_TYPES = {
+    "no_effect",
+    "path_length_increase",
+    "conflict_increase",
+}
+
+
 def _classify_regressions(regressions: list[dict]) -> dict:
     """
     Classify regressions into hard (immediate rollback)
     and soft (mark for review).
+
+    Uses regression type rather than severity label for robustness.
     """
-    hard = [r for r in regressions if r["severity"] == "hard"]
-    soft = [r for r in regressions if r["severity"] == "soft"]
+    hard = [r for r in regressions if r["type"] in HARD_REGRESSION_TYPES]
+    soft = [r for r in regressions if r["type"] in SOFT_REGRESSION_TYPES]
+    # Any unknown type is treated as soft (conservative)
+    unknown = [r for r in regressions
+               if r["type"] not in HARD_REGRESSION_TYPES
+               and r["type"] not in SOFT_REGRESSION_TYPES]
+    soft.extend(unknown)
     return {"hard": hard, "soft": soft}
 
 

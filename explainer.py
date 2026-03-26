@@ -1,7 +1,17 @@
 """
-explainer.py (OpenAI version)
+explainer.py
 
 Phase 10: Robust LLM-powered explanation generation.
+
+Architecture:
+  debugger output (deterministic)
+  → explanation package (filtered subset)
+  → deterministic draft (template + labels)
+  → LLM smoothing (constrained)
+  → validator (faithfulness + coverage + order)
+
+The LLM does NOT diagnose or compose from scratch.
+It only smooths a deterministic draft into fluent prose.
 """
 
 import json
@@ -34,8 +44,10 @@ def build_explanation_package(debugger_output: dict) -> dict:
 def _describe_failure(failure_id: str) -> str:
     return FAILURE_MAP.get(failure_id, failure_id.replace("_", " "))
 
+
 def _describe_signal(signal_name: str) -> str:
     return SIGNAL_MAP.get(signal_name, signal_name.replace("_", " "))
+
 
 def _describe_signals(signals: list[str]) -> str:
     descriptions = [_describe_signal(s) for s in signals]
@@ -47,21 +59,28 @@ def _describe_signals(signals: list[str]) -> str:
 
 
 def render_draft(package: dict) -> dict:
+    """
+    Build a deterministic explanation draft from the package.
+    This is the 'ground truth' structure that the LLM will smooth.
+    """
     primary = package.get("primary_path") or []
     evidence_map = {
         e["failure"]: e["signals"]
         for e in package.get("evidence", [])
     }
 
+    # --- Steps ---
     steps = []
     for fid in primary:
         signals = evidence_map.get(fid, [])
-        steps.append({
+        step = {
             "failure": fid,
             "description": _describe_failure(fid),
             "signals": [_describe_signal(s) for s in signals],
-        })
+        }
+        steps.append(step)
 
+    # --- Primary explanation (template) ---
     parts = []
     for i, step in enumerate(steps):
         sig_text = _describe_signals(evidence_map.get(step["failure"], []))
@@ -75,6 +94,7 @@ def render_draft(package: dict) -> dict:
         parts.append(sentence)
     primary_draft = " ".join(parts)
 
+    # --- Alternative explanations ---
     alt_drafts = []
     for alt_path in package.get("alternative_paths", []):
         alt_parts = []
@@ -86,6 +106,7 @@ def render_draft(package: dict) -> dict:
                 alt_parts.append(f"leading to {fid} ({desc})")
         alt_drafts.append("An alternative path: " + ", ".join(alt_parts) + ".")
 
+    # --- Evidence summary ---
     all_signals = []
     for e in package.get("evidence", []):
         for s in e["signals"]:
@@ -95,6 +116,7 @@ def render_draft(package: dict) -> dict:
         if all_signals else "No supporting signals."
     )
 
+    # --- Summary ---
     if len(primary) >= 2:
         summary_draft = (
             f"The failure chain starts with {_describe_failure(primary[0])} "
@@ -105,6 +127,7 @@ def render_draft(package: dict) -> dict:
     else:
         summary_draft = "No causal path detected."
 
+    # --- Confidence note ---
     ranking = package.get("root_ranking", [])
     conflicts = package.get("conflicts", [])
     if ranking:
@@ -115,6 +138,7 @@ def render_draft(package: dict) -> dict:
         )
     else:
         conf_draft = "No ranking information available."
+
     if conflicts:
         c = conflicts[0]
         conf_draft += (
@@ -133,12 +157,156 @@ def render_draft(package: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Enhanced draft (human-readable context + interpretation + risk)
+# ---------------------------------------------------------------------------
+
+def _extract_grounding_signals(package: dict) -> dict:
+    """Extract grounding signal states from evidence in the package."""
+    grounding = {
+        "data_absent": False,
+        "gap_not_acknowledged": False,
+    }
+    for ev in package.get("evidence", []):
+        for sig in ev.get("signals", []):
+            if sig == "grounding_data_absent":
+                grounding["data_absent"] = True
+            elif sig == "grounding_gap_not_acknowledged":
+                grounding["gap_not_acknowledged"] = True
+    return grounding
+
+
+def _assess_risk(package: dict, grounding: dict) -> tuple:
+    """Determine risk level and justification.
+
+    Returns:
+        (level, justification) where level is "high"/"medium"/"low".
+    """
+    ranking = package.get("root_ranking", [])
+    top_score = ranking[0]["score"] if ranking else 0.0
+    conflicts = package.get("conflicts", [])
+
+    # High risk: unacknowledged grounding gap or high-confidence root
+    if grounding["gap_not_acknowledged"]:
+        return ("high",
+                "The agent produced output without grounded data "
+                "and did not disclose the gap.")
+    if top_score >= 0.85 and not conflicts:
+        return ("high",
+                "High-confidence root cause with no competing explanations.")
+
+    # Medium risk: grounding gap acknowledged, or moderate confidence
+    if grounding["data_absent"]:
+        return ("medium",
+                "Data was unavailable but the agent disclosed this. "
+                "Output may contain unverified information.")
+    if top_score >= 0.65:
+        return ("medium",
+                "Moderate-confidence diagnosis. "
+                "Review recommended before acting on the fix.")
+
+    # Low
+    return ("low",
+            "Low-confidence or minor issue. "
+            "Monitor but no immediate action required.")
+
+
+def _build_context_summary(package: dict, grounding: dict) -> str:
+    """Build a human-readable context summary."""
+    parts = []
+
+    ranking = package.get("root_ranking", [])
+    if ranking:
+        root = ranking[0]
+        parts.append(f"Root cause identified: {_describe_failure(root['id'])} "
+                     f"(confidence: {root['score']}).")
+
+    primary = package.get("primary_path") or []
+    if len(primary) > 1:
+        parts.append(f"A causal chain of {len(primary)} failures was detected.")
+
+    if grounding["data_absent"]:
+        parts.append("Tools returned no usable data for this task.")
+    if grounding["gap_not_acknowledged"]:
+        parts.append("The agent did not acknowledge the data gap.")
+
+    conflicts = package.get("conflicts", [])
+    if conflicts:
+        parts.append("Competing causal explanations exist.")
+
+    return " ".join(parts) if parts else "No significant context to report."
+
+
+def _build_interpretation(package: dict, grounding: dict) -> str:
+    """Build a human-readable interpretation of why the failure occurred."""
+    primary = package.get("primary_path") or []
+    if not primary:
+        return "No causal path was identified."
+
+    root_id = primary[0]
+    root_desc = _describe_failure(root_id)
+
+    parts = [f"The failure originated because {root_desc}."]
+
+    if len(primary) > 1:
+        terminal = _describe_failure(primary[-1])
+        parts.append(f"This cascaded through {len(primary) - 1} "
+                     f"intermediate step(s), ultimately resulting in: "
+                     f"{terminal}.")
+
+    if grounding["data_absent"] and not grounding["gap_not_acknowledged"]:
+        parts.append("The agent acknowledged the data gap but still "
+                     "provided a response, which may contain unverified content.")
+    elif grounding["gap_not_acknowledged"]:
+        parts.append("The agent responded confidently despite having "
+                     "no grounded evidence, which may indicate hallucination.")
+
+    return " ".join(parts)
+
+
+def _build_recommendation(risk_level: str, package: dict) -> str:
+    """Build a human-readable recommendation based on risk level."""
+    if risk_level == "high":
+        return ("Do not auto-apply fixes. Require human review of "
+                "both the diagnosis and the proposed fix before action.")
+    elif risk_level == "medium":
+        return ("Review the proposed fix before applying. "
+                "Verify that the root cause assessment is correct.")
+    else:
+        return ("Low-risk issue. Fix can be applied with standard "
+                "review process.")
+
+
+def render_enhanced_draft(package: dict) -> dict:
+    """
+    Build an enhanced explanation with context, interpretation,
+    risk assessment, and recommendation.
+
+    This extends render_draft() with human-readable sections
+    that non-engineers can understand.
+    """
+    base_draft = render_draft(package)
+    grounding = _extract_grounding_signals(package)
+    risk_level, risk_justification = _assess_risk(package, grounding)
+
+    base_draft["context_summary"] = _build_context_summary(package, grounding)
+    base_draft["interpretation"] = _build_interpretation(package, grounding)
+    base_draft["risk"] = {
+        "level": risk_level,
+        "justification": risk_justification,
+    }
+    base_draft["recommendation"] = _build_recommendation(risk_level, package)
+
+    return base_draft
+
+
+# ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
 
 def load_template(name: str) -> str:
     path = TEMPLATES_DIR / name
     return path.read_text(encoding="utf-8").strip()
+
 
 def build_prompt(package: dict, draft: dict) -> tuple[str, str]:
     system = load_template("system_prompt.txt")
@@ -152,35 +320,34 @@ def build_prompt(package: dict, draft: dict) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# LLM call (OpenAI)
+# LLM call
 # ---------------------------------------------------------------------------
 
 def call_llm(system: str, user: str, api_key: str | None = None,
-             model: str = "gpt-4.1-mini") -> dict:
+             model: str = "claude-sonnet-4-20250514") -> dict:
     import urllib.request
     import urllib.error
 
-    key = api_key or os.environ.get("OPENAI_API_KEY")
+    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError(
-            "No API key. Set OPENAI_API_KEY or pass api_key argument."
+            "No API key. Set ANTHROPIC_API_KEY or pass api_key argument."
         )
 
     payload = json.dumps({
         "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user}
-        ],
-        "temperature": 0
+        "max_tokens": 1024,
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        "https://api.anthropic.com/v1/messages",
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
         },
         method="POST",
     )
@@ -192,10 +359,10 @@ def call_llm(system: str, user: str, api_key: str | None = None,
         error_body = e.read().decode("utf-8") if e.fp else ""
         raise RuntimeError(f"API error {e.code}: {error_body}") from e
 
-    try:
-        text = body["choices"][0]["message"]["content"]
-    except Exception:
-        raise RuntimeError(f"Unexpected API response: {body}")
+    text = ""
+    for block in body.get("content", []):
+        if block.get("type") == "text":
+            text += block["text"]
 
     text = text.strip()
     if text.startswith("```"):
@@ -214,7 +381,7 @@ def call_llm(system: str, user: str, api_key: str | None = None,
 
 
 # ---------------------------------------------------------------------------
-# Validator (Phase 10)
+# Validator (Phase 10 strengthened)
 # ---------------------------------------------------------------------------
 
 EXPECTED_FIELDS = {
@@ -229,11 +396,18 @@ FORBIDDEN_WORDS = {"maybe", "possibly", "perhaps", "might", "could be",
 def validate(response: dict, package: dict) -> list[str]:
     violations = []
 
+    # 1. Schema check
     missing = EXPECTED_FIELDS - set(response.keys())
     if missing:
         violations.append(f"Missing fields: {missing}")
 
     primary = package.get("primary_path") or []
+    evidence_map = {
+        e["failure"]: e["signals"]
+        for e in package.get("evidence", [])
+    }
+
+    # 2. Primary path node coverage
     primary_text = response.get("primary_explanation", "")
     for node in primary:
         if node not in primary_text and node.replace("_", " ") not in primary_text:
@@ -241,6 +415,7 @@ def validate(response: dict, package: dict) -> list[str]:
                 f"Primary path node '{node}' not mentioned in primary_explanation"
             )
 
+    # 3. Alternative count match
     alt_explanations = response.get("alternative_explanations", [])
     alt_paths = package.get("alternative_paths", [])
     if len(alt_explanations) != len(alt_paths):
@@ -249,29 +424,51 @@ def validate(response: dict, package: dict) -> list[str]:
             f"!= alternative_paths count ({len(alt_paths)})"
         )
 
+    # 4. Signal coverage: all evidence signals must appear somewhere
+    #    Uses keyword matching to allow minor LLM paraphrasing
+    #    while catching missing signals.
+    STOP_WORDS = {"the", "a", "an", "is", "was", "were", "are", "be",
+                  "been", "being", "have", "has", "had", "do", "does",
+                  "did", "will", "would", "could", "should", "may",
+                  "might", "shall", "can", "to", "of", "in", "for",
+                  "on", "with", "at", "by", "from", "as", "into",
+                  "through", "during", "before", "after", "and", "but",
+                  "or", "nor", "not", "no", "so", "if", "than", "that",
+                  "this", "it", "its", "because"}
     all_text = json.dumps(response).lower()
     for ev in package.get("evidence", []):
         for sig in ev["signals"]:
             sig_desc = SIGNAL_MAP.get(sig, "").lower()
             sig_name = sig.replace("_", " ").lower()
-            if sig_name not in all_text and sig_desc not in all_text and sig not in all_text:
-                violations.append(f"Signal '{sig}' not reflected in explanation")
+            # Exact match first (fastest)
+            if sig_name in all_text or sig_desc in all_text or sig in all_text:
+                continue
+            # Keyword fuzzy match: extract content words, check coverage
+            keywords = [w for w in sig_desc.split() if w not in STOP_WORDS and len(w) > 2]
+            if keywords:
+                matched = sum(1 for kw in keywords if kw in all_text)
+                coverage = matched / len(keywords)
+                if coverage < 0.6:
+                    violations.append(f"Signal '{sig}' not reflected in explanation")
 
+    # 5. Forbidden words (speculation check)
     for word in FORBIDDEN_WORDS:
         if word in all_text:
             violations.append(f"Speculative language detected: '{word}'")
 
+    # 6. Causal order check: nodes must appear in primary path order
     for i in range(len(primary) - 1):
         pos_a = primary_text.find(primary[i])
         pos_b = primary_text.find(primary[i + 1])
         if pos_a == -1 or pos_b == -1:
-            continue
+            continue  # already caught by node coverage check
         if pos_a > pos_b:
             violations.append(
                 f"Causal order violation: '{primary[i]}' appears after "
                 f"'{primary[i+1]}' in primary_explanation"
             )
 
+    # 7. Steps structure check
     steps = response.get("steps", [])
     if steps and len(steps) != len(primary):
         violations.append(
@@ -286,10 +483,23 @@ def validate(response: dict, package: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def explain(debugger_output: dict, api_key: str | None = None,
-            model: str = "gpt-4.1-mini",
-            use_llm: bool = True) -> dict:
+            model: str = "claude-sonnet-4-20250514",
+            use_llm: bool = True,
+            enhanced: bool = False) -> dict:
+    """
+    Full pipeline:
+      debugger output → package → draft → (optional LLM) → validated response.
+
+    If use_llm=False, returns the deterministic draft directly.
+    If enhanced=True, includes context_summary, interpretation,
+    risk assessment, and recommendation in the draft.
+    """
     package = build_explanation_package(debugger_output)
-    draft = render_draft(package)
+
+    if enhanced:
+        draft = render_enhanced_draft(package)
+    else:
+        draft = render_draft(package)
 
     if not use_llm:
         violations = validate(draft, package)
