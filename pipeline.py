@@ -58,6 +58,46 @@ def _load_policies():
 
 
 # ---------------------------------------------------------------------------
+# Input validation (fail fast)
+# ---------------------------------------------------------------------------
+
+def _validate_matcher_output(matcher_output):
+    """Validate matcher_output before entering the pipeline.
+
+    Checks structure only — does not validate values or enforce
+    strict schema. Raises ValueError/TypeError on invalid input.
+    """
+    if not isinstance(matcher_output, list):
+        raise TypeError(
+            f"matcher_output must be a list, got {type(matcher_output).__name__}"
+        )
+
+    for i, entry in enumerate(matcher_output):
+        if not isinstance(entry, dict):
+            raise TypeError(
+                f"matcher_output[{i}] must be a dict, got {type(entry).__name__}"
+            )
+        for field in ("failure_id", "diagnosed", "confidence"):
+            if field not in entry:
+                raise ValueError(
+                    f"matcher_output[{i}] missing required field '{field}'"
+                )
+
+
+def _validate_debugger_output(debugger_output):
+    """Validate debugger_output before entering the fix pipeline."""
+    if not isinstance(debugger_output, dict):
+        raise TypeError(
+            f"debugger_output must be a dict, got {type(debugger_output).__name__}"
+        )
+    for field in ("failures", "root_ranking"):
+        if field not in debugger_output:
+            raise ValueError(
+                f"debugger_output missing required field '{field}'"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Diagnosis
 # ---------------------------------------------------------------------------
 
@@ -74,6 +114,7 @@ def run_diagnosis(matcher_output: list[dict]) -> dict:
           root_candidates, root_ranking, failures,
           causal_paths, primary_path, conflicts, evidence
     """
+    _validate_matcher_output(matcher_output)
     graph = load_graph(str(GRAPH_PATH))
     resolved = resolve(graph, matcher_output)
     output = format_output(resolved)
@@ -100,6 +141,7 @@ def run_fix(debugger_output: dict,
     Returns:
         Dict with: decision, autofix, gate, post_apply (if auto_apply).
     """
+    _validate_debugger_output(debugger_output)
     policies = _load_policies() if use_learning else None
 
     # Decision support
@@ -231,13 +273,27 @@ def run_pipeline(matcher_output: list[dict],
                     "failure_count": len(diagnosis.get("failures", [])),
                 },
             }
-            runner_result = evaluation_runner(runner_input)
-            fix_result["gate"]["post_apply"] = {
-                "evaluation_mode": "runner",
-                "runner_result": runner_result,
-                "evaluation_decision": _decision_from_runner_result(runner_result),
-                "rollback_executed": runner_result.get("has_hard_regression", False),
-            }
+            try:
+                runner_result = evaluation_runner(runner_input)
+            except Exception as e:
+                # External evaluation failed — fall back to staged_review
+                # deterministically rather than crashing the pipeline.
+                fix_result["gate"]["post_apply"] = {
+                    "evaluation_mode": "runner",
+                    "runner_result": None,
+                    "evaluation_decision": "review",
+                    "rollback_executed": False,
+                    "runner_error": str(e),
+                }
+                runner_result = None
+
+            if runner_result is not None:
+                fix_result["gate"]["post_apply"] = {
+                    "evaluation_mode": "runner",
+                    "runner_result": runner_result,
+                    "evaluation_decision": _decision_from_runner_result(runner_result),
+                    "rollback_executed": runner_result.get("has_hard_regression", False),
+                }
         else:
             # Built-in counterfactual evaluation
             graph = load_graph(str(GRAPH_PATH))
