@@ -8,9 +8,22 @@ matcher output → root cause → causal path → fix → auto-apply gate
 
 ---
 
-## Minimal Example
+## Add to Your Agent
 
-No API key needed. Copy, paste, run:
+```python
+# Your existing LangGraph app
+from your_app import workflow
+
+# Add this one line
+from adapters.callback_handler import watch
+graph = watch(workflow.compile(), auto_diagnose=True, auto_pipeline=True)
+
+# Run as normal
+result = graph.invoke({"messages": [HumanMessage(content="...")]})
+# → Atlas observes, diagnoses, and explains automatically
+```
+
+**Try without an API key** (copy-paste-run):
 
 ```python
 from langchain_core.language_models import FakeListLLM
@@ -36,13 +49,13 @@ graph = watch(workflow.compile(), auto_diagnose=True)
 graph.invoke({"messages": [HumanMessage(content="What was Q3 revenue?")]})
 ```
 
-This simulates an agent that answers a factual question without any data source. Atlas observes the execution and reports:
+Atlas reports:
 
 ```
 Grounding:  tool_provided_data=False  uncertainty_acknowledged=False
 ```
 
-The agent produced a confident, detailed answer with no tool data and did not disclose the gap. This would be classified as a risk case — see [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) for how to handle it.
+The agent answered confidently with no data and didn't disclose the gap — a risk case. See [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) for how to handle it.
 
 Note: This output depends on runtime signals captured by the observer (telemetry), not static rules alone.
 
@@ -180,16 +193,6 @@ The pipeline validates input at entry and rejects malformed data with clear erro
 
 ---
 
-## Root Ranking
-
-```
-score = 0.5 * confidence + 0.3 * normalized_downstream + 0.2 * (1 - normalized_depth)
-```
-
-More downstream impact ranks higher, even with lower confidence. This reflects causal priority.
-
----
-
 ## Auto-Apply Gate
 
 | Score | Mode | Behavior |
@@ -286,8 +289,6 @@ All scoring weights and gate thresholds are in `config.py`.
 | [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) | Failure patterns, causal graph, matcher, adapters |
 | [agent-pld-metrics](https://github.com/kiyoshisasano/agent-pld-metrics) | Behavioral stability framework (PLD) |
 
-This tool implements a single control step within the [PLD](https://github.com/kiyoshisasano/agent-pld-metrics) loop: post-incident causal analysis and intervention decision.
-
 ---
 
 ## Reproducible Examples
@@ -297,6 +298,20 @@ This tool implements a single control step within the [PLD](https://github.com/k
 ```bash
 python main.py ../llm-failure-atlas/examples/simple/matcher_output.json
 ```
+
+---
+
+## Internals
+
+**Root ranking formula:**
+
+```
+score = 0.5 * confidence + 0.3 * normalized_downstream + 0.2 * (1 - normalized_depth)
+```
+
+More downstream impact ranks higher, even with lower confidence. This reflects causal priority, not detection confidence alone.
+
+This tool implements a single control step within the [PLD](https://github.com/kiyoshisasano/agent-pld-metrics) loop: post-incident causal analysis and intervention decision.
 
 ---
 
