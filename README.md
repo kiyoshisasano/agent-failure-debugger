@@ -50,6 +50,8 @@ Note: This output depends on runtime signals captured by the observer (telemetry
 
 ## Quick Start
 
+To run the full pipeline with real matcher output (requires both repositories cloned as siblings):
+
 ```bash
 git clone https://github.com/kiyoshisasano/agent-failure-debugger.git
 cd agent-failure-debugger
