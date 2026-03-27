@@ -1,52 +1,61 @@
 # agent-failure-debugger
 
-A deterministic pipeline that diagnoses, explains, and fixes failures in LLM-based agent systems.
+Diagnoses *why* your LLM agent failed, not just *what* failed. Deterministic causal analysis with fix generation.
 
 ```
-Detection tells you WHAT failed.
-This tool tells you WHY — through which causal path, starting from which root.
-And then fixes it.
+matcher output → root cause → causal path → fix → auto-apply gate
 ```
 
 ---
 
-## Related Repositories
+## Minimal Example
 
-| Repository | Role |
-|---|---|
-| [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) | Failure pattern definitions, causal graph, matcher, evaluation, KPI |
-| [agent-pld-metrics (PLD)](https://github.com/kiyoshisasano/agent-pld-metrics) | Behavioral stability framework this tool applies to |
+No API key needed. Copy, paste, run:
+
+```python
+from langchain_core.language_models import FakeListLLM
+from langchain_core.messages import HumanMessage, AIMessage
+from langgraph.graph import StateGraph, MessagesState, START, END
+from adapters.callback_handler import watch
+
+llm = FakeListLLM(responses=[
+    "The revenue was $4.2M in Q3 2024, representing 31% year-over-year "
+    "growth. The Asia-Pacific segment contributed 45% of total revenue. "
+    "Operating margins expanded to 19.3% across all regions."
+])
+
+def agent(state: MessagesState):
+    return {"messages": [AIMessage(content=llm.invoke(state["messages"]))]}
+
+workflow = StateGraph(MessagesState)
+workflow.add_node("agent", agent)
+workflow.add_edge(START, "agent")
+workflow.add_edge("agent", END)
+
+graph = watch(workflow.compile(), auto_diagnose=True)
+graph.invoke({"messages": [HumanMessage(content="What was Q3 revenue?")]})
+```
+
+This simulates an agent that answers a factual question without any data source. Atlas observes the execution and reports:
+
+```
+Grounding:  tool_provided_data=False  uncertainty_acknowledged=False
+```
+
+The agent produced a confident, detailed answer with no tool data and did not disclose the gap. This would be classified as a risk case — see [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) for how to handle it.
+
+Note: This output depends on runtime signals captured by the observer (telemetry), not static rules alone.
 
 ---
 
-## What It Does
-
-**Input:** Matcher output (detected failures with confidence scores) + causal graph
-
-**Output:**
-- Root cause identification with causal ranking
-- Full causal path reconstruction
-- Deterministic fix generation with safety classification
-- Confidence-gated auto-apply with rollback
-- Learning-aware priority adjustment
-
----
-
-## Quickstart
+## Quick Start
 
 ```bash
 git clone https://github.com/kiyoshisasano/agent-failure-debugger.git
 cd agent-failure-debugger
 pip install -r requirements.txt
-```
 
-Run with sample data:
-
-```bash
-# Diagnosis only
-python main.py ../llm-failure-atlas/examples/simple/matcher_output.json
-
-# Full pipeline (recommended)
+# Run with sample data
 python pipeline.py ../llm-failure-atlas/examples/simple/matcher_output.json --use-learning
 ```
 
@@ -65,47 +74,34 @@ Output:
 
 ## Use as an API
 
+### Full pipeline
+
 ```python
 from pipeline import run_pipeline
-import json
-
-with open("matcher_output.json") as f:
-    matcher_output = json.load(f)
 
 result = run_pipeline(
     matcher_output,
-    use_learning=True,   # adjust priority using learning data
-    top_k=1,             # number of fixes to generate
-    auto_apply=False,    # set True to auto-apply safe fixes
+    use_learning=True,
+    include_explanation=True,
 )
 
-print(result["summary"]["root_cause"])   # "premature_model_commitment"
-print(result["summary"]["gate_mode"])    # "auto_apply"
+print(result["summary"]["root_cause"])
+print(result["summary"]["gate_mode"])
 ```
 
-### Enhanced Explanation
-
-Add `include_explanation=True` to get a human-readable interpretation with risk assessment:
+### Enhanced explanation
 
 ```python
-result = run_pipeline(matcher_output, include_explanation=True)
-
 expl = result["explanation"]
-print(expl["context_summary"])    # what happened
-print(expl["interpretation"])     # why it happened
-print(expl["risk"]["level"])      # HIGH / MEDIUM / LOW
-print(expl["recommendation"])     # what to do
+print(expl["context_summary"])     # what happened
+print(expl["interpretation"])      # why it happened
+print(expl["risk"]["level"])       # HIGH / MEDIUM / LOW
+print(expl["recommendation"])      # what to do
 ```
 
-CLI:
+CLI: `python explain.py --enhanced debugger_output.json`
 
-```bash
-python explain.py --enhanced debugger_output.json
-```
-
-For real-world examples of how to interpret Atlas output, see [Applied Debugging Examples](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/applied_debugging_examples.md) in the Atlas repository.
-
-Individual steps are also available:
+### Individual steps
 
 ```python
 from pipeline import run_diagnosis, run_fix
@@ -114,85 +110,36 @@ diag = run_diagnosis(matcher_output)
 fix_result = run_fix(diag, use_learning=True, top_k=2)
 ```
 
-### External Evaluation (Phase 25-lite)
-
-You can plug in your own test environment for fix evaluation:
+### External evaluation
 
 ```python
 def my_staging_test(bundle):
-    """Run fixes in your staging environment."""
     fixes = bundle["autofix"]["recommended_fixes"]
-    # ... apply fixes in your own test/staging env ...
+    # apply fixes in your staging env
     return {
         "success": True,
         "failure_count": 0,
         "root": None,
         "has_hard_regression": False,
-        "notes": f"applied {len(fixes)} fixes in staging"
+        "notes": "passed staging tests",
     }
 
 result = run_pipeline(
     matcher_output,
-    use_learning=True,
     auto_apply=True,
     evaluation_runner=my_staging_test,
 )
 ```
 
-If `evaluation_runner` is not provided, the built-in counterfactual simulation is used. If provided and the gate passes, your function is called instead.
+If `evaluation_runner` is not provided, the built-in counterfactual simulation is used. If the runner raises an exception, the pipeline falls back to `staged_review` deterministically.
 
----
-
-## Pipeline
-
-```mermaid
-flowchart LR
-    Log[(Raw Agent Log)] --> Adapter[Adapter<br>Phase 24]
-    Adapter --> Telemetry[Matcher Input<br>Telemetry]
-    Telemetry --> Matcher[matcher.py<br>Detection]
-    Matcher --> Graph[(Failure Graph<br>Atlas)]
-    Graph --> Debugger[Debugger Pipeline<br>Fix & Auto-apply]
-    
-    classDef data fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#000;
-    classDef process fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000;
-    classDef atlas fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,color:#000;
-    
-    class Log,Telemetry data;
-    class Adapter,Matcher process;
-    class Graph,Debugger atlas;
-```
-
-Debugger internal steps:
-
-```
-matcher_output.json   (produced by llm-failure-atlas matcher)
-  → main.py             causal resolution + root ranking
-  → abstraction.py      top-k path selection + clustering
-  → explainer.py        deterministic draft + optional LLM smoothing
-  → decision_support.py priority scoring + action plan
-  → autofix.py          fix selection + patch generation
-  → auto_apply.py       confidence gate → apply / review / proposal
-  → execute_fix.py      dependency ordering + staged apply
-  → evaluate_fix.py     before/after simulation + regression detection
-```
-
----
-
-## Prerequisite: Matcher
-
-This tool expects matcher output as input. The matcher converts logs into detected failures:
-
-```
-log → signals → failure detection (matcher)
-```
-
-Pattern definitions are maintained in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `failures/*.yaml`. Pre-generated `matcher_output.json` files are available in each `examples/` directory for immediate use.
+For real-world interpretation examples, see [Applied Debugging Examples](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/applied_debugging_examples.md) and [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) in the Atlas repository.
 
 ---
 
 ## Input Format
 
-Matcher output: a JSON array of failure results. Each entry must include `failure_id`, `diagnosed`, and `confidence`.
+A JSON array of failure results from the matcher. Each entry needs `failure_id`, `diagnosed`, and `confidence`:
 
 ```json
 [
@@ -208,7 +155,7 @@ Matcher output: a JSON array of failure results. Each entry must include `failur
 ]
 ```
 
-Failures with `"diagnosed": false` are silently excluded.
+The pipeline validates input at entry and rejects malformed data with clear error messages.
 
 ---
 
@@ -221,14 +168,11 @@ Failures with `"diagnosed": false` are silently excluded.
   "failures": [
     {"id": "premature_model_commitment", "confidence": 0.7},
     {"id": "semantic_cache_intent_bleeding", "confidence": 0.7,
-     "caused_by": ["premature_model_commitment"]},
-    {"id": "rag_retrieval_drift", "confidence": 0.6,
-     "caused_by": ["semantic_cache_intent_bleeding"]}
+     "caused_by": ["premature_model_commitment"]}
   ],
   "causal_paths": [
     ["premature_model_commitment", "semantic_cache_intent_bleeding", "rag_retrieval_drift"]
-  ],
-  "explanation": "..."
+  ]
 }
 ```
 
@@ -237,175 +181,120 @@ Failures with `"diagnosed": false` are silently excluded.
 ## Root Ranking
 
 ```
-score = 0.5 × confidence + 0.3 × normalized_downstream + 0.2 × (1 - normalized_depth)
+score = 0.5 * confidence + 0.3 * normalized_downstream + 0.2 * (1 - normalized_depth)
 ```
 
-A failure with more downstream impact ranks higher, even if its confidence is lower. This reflects causal priority, not detection confidence alone.
+More downstream impact ranks higher, even with lower confidence. This reflects causal priority.
 
 ---
 
 ## Auto-Apply Gate
 
-Fix application is controlled by a deterministic confidence gate:
-
 | Score | Mode | Behavior |
 |---|---|---|
-| ≥ 0.85 | `auto_apply` | Apply → evaluate → keep or rollback |
-| 0.65–0.85 | `staged_review` | Write to patches/, await human approval |
+| >= 0.85 | `auto_apply` | Apply, evaluate, keep or rollback |
+| 0.65-0.85 | `staged_review` | Write to patches/, await human approval |
 | < 0.65 | `proposal_only` | Present fix proposal only |
 
-Hard blockers (override score, force proposal_only):
+Hard blockers (force proposal_only regardless of score):
 - `safety != "high"`
 - `review_required == true`
 - `fix_type == "workflow_patch"`
 - Execution plan has conflicts or failed validation
-- `grounding_gap_not_acknowledged` signal active (possible hallucination)
+- `grounding_gap_not_acknowledged` signal active
+
+---
+
+## Pipeline Steps
+
+```
+matcher_output.json
+  → main.py             causal resolution + root ranking
+  → abstraction.py      top-k path selection
+  → explainer.py        deterministic draft + optional LLM smoothing
+  → decision_support.py priority scoring + action plan
+  → autofix.py          fix selection + patch generation
+  → auto_apply.py       confidence gate
+  → execute_fix.py      dependency ordering + staged apply
+  → evaluate_fix.py     before/after simulation + regression detection
+```
 
 ---
 
 ## File Structure
 
-**Core pipeline:**
-
-| File | Responsibility |
+| File | Role |
 |---|---|
 | `pipeline.py` | API entry point (recommended) |
 | `main.py` | CLI entry point (diagnosis only) |
-| `config.py` | Centralized paths, weights, thresholds |
-| `graph_loader.py` | Load failure_graph.yaml, exclude planned nodes |
-| `causal_resolver.py` | normalize → roots → paths → ranking |
-| `formatter.py` | Path scoring + conflict resolution + evidence |
-| `labels.py` | SIGNAL_MAP (30 entries) + FAILURE_MAP (15 entries) |
-| `abstraction.py` | Top-k path selection + clustering |
-| `explainer.py` | Deterministic draft + optional LLM smoothing |
-| `decision_support.py` | Failure → action mapping + priority scoring |
+| `config.py` | Paths, weights, thresholds |
+| `graph_loader.py` | Load failure_graph.yaml |
+| `causal_resolver.py` | Normalize, find roots, build paths, rank |
+| `formatter.py` | Path scoring + conflict resolution |
+| `labels.py` | SIGNAL_MAP (30) + FAILURE_MAP (15) |
+| `explainer.py` | Deterministic + optional LLM explanation |
+| `decision_support.py` | Failure to action mapping |
 | `autofix.py` | Fix selection + patch generation |
-| `fix_templates.py` | 15 failure × fix definitions (12 domain + 3 meta) |
-| `execute_fix.py` | Dependency ordering + staged apply + rollback |
-| `evaluate_fix.py` | Counterfactual simulation + regression detection |
-| `auto_apply.py` | Confidence gate + auto-apply + rollback |
-| `policy_loader.py` | Read-only access to learning stores |
-
-**CLI wrappers:**
-
-| File | Wraps |
-|---|---|
-| `explain.py` | `explainer.py` |
-| `summarize.py` | `abstraction.py` |
-| `advise.py` | `decision_support.py` |
-| `apply_fix.py` | `execute_fix.py` (dry-run display) |
-
-**Data:**
-
-| File | Note |
-|---|---|
-| `failure_graph.yaml` | Causal graph (canonical source is Atlas; see below) |
-| `templates/` | Prompt templates for LLM-based explanation |
+| `fix_templates.py` | 15 fix definitions (12 domain + 3 meta) |
+| `auto_apply.py` | Confidence gate + auto-apply |
+| `execute_fix.py` | Dependency ordering + staged apply |
+| `evaluate_fix.py` | Counterfactual simulation |
+| `policy_loader.py` | Read-only learning store access |
 
 ---
 
-## Graph Sync
+## Graph Source
 
-The **canonical source** of `failure_graph.yaml` is always `llm-failure-atlas/failure_graph.yaml`. When `ATLAS_ROOT` is set (or the Atlas repository exists as a sibling directory), `config.py` loads the graph directly from Atlas. The local copy in this repository serves as a fallback only.
-
-To verify which graph is loaded:
+The canonical `failure_graph.yaml` is in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas). When the Atlas repository is available as a sibling directory (or `ATLAS_ROOT` is set), the debugger loads the graph from Atlas directly. The local copy is a fallback.
 
 ```python
 from config import GRAPH_PATH
-print(GRAPH_PATH)
+print(GRAPH_PATH)  # shows which graph is loaded
 ```
 
 ---
 
 ## Configuration
 
-Environment variables override defaults:
-
 | Variable | Default | Description |
 |---|---|---|
 | `ATLAS_ROOT` | `../llm-failure-atlas` | Path to Atlas repository |
-| `DEBUGGER_ROOT` | `.` (this repository) | Path to this repository |
+| `DEBUGGER_ROOT` | `.` | Path to this repository |
 | `ATLAS_LEARNING_DIR` | `$ATLAS_ROOT/learning` | Learning store location |
 
-All settings (scoring weights, gate thresholds, KPI targets) are centralized in `config.py`.
-
----
-
-## What This Is
-
-This tool is a **deterministic causal debugging pipeline** — not an ML-based anomaly detector.
-
-- **Deterministic:** Same matcher output always produces the same root cause, causal path, fix, and gate decision. The core pipeline uses no LLM inference (LLM is optional, for explanation smoothing only).
-- **Causal, not statistical:** Root ranking uses graph structure and confidence scores, not learned weights or embeddings.
-- **Consistent over correct:** The system produces a *structurally consistent explanation* under its scoring and resolution rules. It finds the best-supported root cause given the defined causal graph — not necessarily the "true" cause.
-
-Key implications:
-
-- Root cause ranking is reproducible and auditable
-- Auto-apply decisions are governed by a deterministic confidence gate, not LLM judgment
-- The evaluate_fix stage applies a deterministic structural intervention model, not an empirical simulation: targeted failures and all their downstream descendants are removed from the causal graph, and the system state is recomputed
-- Learning adjusts *weights*, never *structure* (patterns, graph, and templates are never auto-modified)
+All scoring weights and gate thresholds are in `config.py`.
 
 ---
 
 ## Design Principles
 
-- **Graph is not used for diagnosis** — only for causal interpretation
-- **Signal names are system-wide contracts** — no redefinition allowed
-- **Adding a failure to the Atlas requires no changes to this tool**
-- **Learning is suggestion-only** — patterns, graph, and templates are never auto-modified
-- **Auto-apply safety hierarchy:** high → auto candidate, medium → review, low → excluded
-- **Fail fast on invalid input** — pipeline validates matcher_output and debugger_output structure at entry
-- **Enhanced explanations** — `explain(enhanced=True)` adds context summary, interpretation, risk assessment, and recommendation to the deterministic draft
+- **Deterministic** — same matcher output, same root cause, same fix, same gate decision
+- **Graph is for interpretation only** — not used during detection
+- **Signal names are contracts** — no redefinition allowed
+- **Learning is suggestion-only** — structure is never auto-modified
+- **Fail fast on invalid input** — pipeline validates at entry
+- **Enhanced explanations** — `include_explanation=True` adds context, interpretation, risk, and recommendation
 
 ---
 
-## Relationship to Atlas
+## Related Repositories
 
-This tool depends on [LLM Failure Atlas](https://github.com/kiyoshisasano/llm-failure-atlas):
+| Repository | Role |
+|---|---|
+| [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) | Failure patterns, causal graph, matcher, adapters |
+| [agent-pld-metrics](https://github.com/kiyoshisasano/agent-pld-metrics) | Behavioral stability framework (PLD) |
 
-- `failure_graph.yaml` is sourced from the Atlas
-- Node and edge definitions are maintained there
-- This tool does not define failures itself
-
-**Real-time integration:** The Atlas provides a [callback handler](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/adapters/callback_handler.py) that collects events during LangChain/LangGraph execution, builds telemetry via an observation layer, runs the matcher, and then feeds diagnosed failures into this pipeline — all automatically. See the Atlas README for callback usage and the observation layer design.
-
-**Tested with real agents:** The full callback → matcher → debugger pipeline has been verified with real LangGraph agents (OpenAI API). Three failure patterns have been detected on live agent runs: `incorrect_output`, `agent_tool_call_loop`, `clarification_failure`.
-
----
-
-## Relationship to PLD
-
-[Phase Loop Dynamics (PLD)](https://github.com/kiyoshisasano/agent-pld-metrics) is a runtime governance layer that stabilizes multi-turn LLM agent execution through the loop: **Drift → Repair → Reentry → Continue → Outcome**.
-
-This tool is **not a PLD runtime**. It implements a **single control step spanning analysis, intervention, and evaluation** within the PLD loop — the post-incident causal analysis and intervention decision.
-
-**How this pipeline maps to PLD concepts:**
-
-- **Drift:** Root causes provide a structural explanation of drift after it has been detected. `root_ranking` identifies the most impactful failure, but does not directly measure real-time misalignment.
-- **Repair:** `autofix` generates fixes and `auto_apply` gate governs intervention decisions (`decision_support` → `autofix` → `auto_apply`). These produce structured proposals that PLD Repair strategies can consume.
-- **Reentry / Continue:** `evaluate_fix` provides a structural reentry check (before/after comparison, not full task-level reentry validation). Explicit re-verification and task resumption are external to this pipeline.
-- **Outcome:** Refers to intervention results (keep / review / rollback), not full session termination states as defined by PLD.
-
-**System state** is defined by the set of active failures and their causal relationships. The pipeline transforms this state through a single pass, not a multi-turn loop.
-
-**KPIs** (6 internal stability metrics) measure pipeline health and do not directly correspond to PLD operational metrics (PRDR, REI, VRL, MRBF, FR).
-
-This system functions as a control layer that governs intervention decisions within the PLD loop. PLD provides the runtime governance framework; this tool provides the causal analysis and remediation that operates within one step of it.
+This tool implements a single control step within the [PLD](https://github.com/kiyoshisasano/agent-pld-metrics) loop: post-incident causal analysis and intervention decision.
 
 ---
 
 ## Reproducible Examples
 
-10 examples are maintained in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `examples/`. Each contains `log.json`, `matcher_output.json`, and `expected_debugger_output.json`.
-
-Run and compare:
+10 examples in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `examples/`. Each contains `log.json`, `matcher_output.json`, and `expected_debugger_output.json`.
 
 ```bash
 python main.py ../llm-failure-atlas/examples/simple/matcher_output.json
 ```
-
-Output should match `expected_debugger_output.json` exactly.
 
 ---
 
