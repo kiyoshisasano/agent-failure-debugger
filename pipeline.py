@@ -31,6 +31,7 @@ from autofix import generate_autofix
 from execute_fix import build_execution_plan
 from auto_apply import gate_autofix, maybe_apply
 from abstraction import abstract
+from explainer import explain as run_explanation
 from evaluate_fix import (
     simulate_after_state, compute_delta, detect_regressions,
     decide_keep_or_rollback,
@@ -203,6 +204,7 @@ def run_pipeline(matcher_output: list[dict],
                  top_k: int = 1,
                  auto_apply: bool = False,
                  include_abstraction: bool = False,
+                 include_explanation: bool = False,
                  evaluation_runner=None) -> dict:
     """
     Run the complete pipeline: diagnosis → fix → evaluation.
@@ -215,6 +217,7 @@ def run_pipeline(matcher_output: list[dict],
         top_k: Number of fixes to generate.
         auto_apply: If True and gate passes, execute fixes automatically.
         include_abstraction: Include abstraction layer output.
+        include_explanation: Include enhanced explanation in result.
         evaluation_runner: Optional callback for external evaluation.
             If provided and auto_apply gate passes, this function is called
             instead of the built-in counterfactual simulation.
@@ -333,6 +336,10 @@ def run_pipeline(matcher_output: list[dict],
 
     if abstraction_output:
         result["abstraction"] = abstraction_output
+
+    if include_explanation:
+        expl = run_explanation(diagnosis, use_llm=False, enhanced=True)
+        result["explanation"] = expl["response"]
 
     return result
 
