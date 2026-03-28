@@ -2,8 +2,11 @@
 
 Diagnoses *why* your LLM agent failed, not just *what* failed. Deterministic causal analysis with fix generation.
 
-```
-matcher output → root cause → causal path → fix → auto-apply gate
+```python
+from diagnose import diagnose
+
+result = diagnose(raw_log, adapter="langchain")
+print(result["explanation"]["context_summary"])
 ```
 
 ---
@@ -93,41 +96,7 @@ result = graph.invoke({"messages": [...]})
 # → detection + debugger pipeline + explanation printed automatically
 ```
 
-**Try without an API key** (copy-paste-run):
-
-```python
-from langchain_core.language_models import FakeListLLM
-from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.graph import StateGraph, MessagesState, START, END
-from adapters.callback_handler import watch
-
-llm = FakeListLLM(responses=[
-    "The revenue was $4.2M in Q3 2024, representing 31% year-over-year "
-    "growth. The Asia-Pacific segment contributed 45% of total revenue. "
-    "Operating margins expanded to 19.3% across all regions."
-])
-
-def agent(state: MessagesState):
-    return {"messages": [AIMessage(content=llm.invoke(state["messages"]))]}
-
-workflow = StateGraph(MessagesState)
-workflow.add_node("agent", agent)
-workflow.add_edge(START, "agent")
-workflow.add_edge("agent", END)
-
-graph = watch(workflow.compile(), auto_diagnose=True)
-graph.invoke({"messages": [HumanMessage(content="What was Q3 revenue?")]})
-```
-
-Atlas reports:
-
-```
-Grounding:  tool_provided_data=False  uncertainty_acknowledged=False
-```
-
-The agent answered confidently with no data and didn't disclose the gap — a risk case. See [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) for how to handle it.
-
-Note: This output depends on runtime signals captured by the observer (telemetry), not static rules alone.
+For a copy-paste example without an API key, see [Reproducible Examples](#reproducible-examples) below.
 
 ---
 
@@ -348,6 +317,34 @@ All scoring weights and gate thresholds are in `config.py`.
 ---
 
 ## Reproducible Examples
+
+**Try without an API key** (copy-paste-run):
+
+```python
+from langchain_core.language_models import FakeListLLM
+from langchain_core.messages import HumanMessage, AIMessage
+from langgraph.graph import StateGraph, MessagesState, START, END
+from adapters.callback_handler import watch
+
+llm = FakeListLLM(responses=[
+    "The revenue was $4.2M in Q3 2024, representing 31% year-over-year "
+    "growth. The Asia-Pacific segment contributed 45% of total revenue. "
+    "Operating margins expanded to 19.3% across all regions."
+])
+
+def agent(state: MessagesState):
+    return {"messages": [AIMessage(content=llm.invoke(state["messages"]))]}
+
+workflow = StateGraph(MessagesState)
+workflow.add_node("agent", agent)
+workflow.add_edge(START, "agent")
+workflow.add_edge("agent", END)
+
+graph = watch(workflow.compile(), auto_diagnose=True)
+graph.invoke({"messages": [HumanMessage(content="What was Q3 revenue?")]})
+```
+
+**Regression test examples:**
 
 10 examples in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `examples/`. Each contains `log.json`, `matcher_output.json`, and `expected_debugger_output.json`.
 
