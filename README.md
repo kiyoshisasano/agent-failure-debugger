@@ -17,7 +17,7 @@ Use this when:
 
 Choose your entry point:
 
-- **During development** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to observe live executions and get automatic diagnosis at runtime
+- **During development** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to observe live executions and diagnose behavior as it happens
 - **After failures** — use `diagnose()` to analyze a raw log or exported trace after the fact
 
 ### From a raw log (simplest)
