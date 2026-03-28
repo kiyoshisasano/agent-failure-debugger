@@ -15,16 +15,36 @@ matcher output → root cause → causal path → fix → auto-apply gate
 ```python
 from diagnose import diagnose
 
-result = diagnose(raw_log, adapter="langchain")
+# Example: Redis RAG response
+raw_log = {
+    "answer": "Your payment was declined. Check your card details.",
+    "sources": [{"content": "If payment was declined, verify card..."}],
+    "from_cache": False,
+    "cache_similarity": None,
+}
 
-print(result["summary"]["root_cause"])
-print(result["explanation"]["interpretation"])
-print(result["explanation"]["risk"]["level"])
+result = diagnose(raw_log, adapter="redis_demo")
+
+print(result["explanation"]["context_summary"])
+# → "No significant issues detected." or root cause description
 ```
 
 One function: adapt → detect → diagnose → explain. Requires [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) as a sibling directory.
 
-Available adapters: `langchain`, `langsmith`, `crewai`, `redis_demo`.
+**Which adapter to use:**
+
+| Adapter | Use for |
+|---|---|
+| `langchain` | LangChain / LangGraph traces |
+| `langsmith` | LangSmith run-tree exports |
+| `crewai` | CrewAI crew execution logs |
+| `redis_demo` | Redis RAG + Semantic Cache API responses |
+
+**CLI:**
+
+```bash
+python diagnose.py log.json --adapter langchain
+```
 
 ### From matcher output (direct)
 

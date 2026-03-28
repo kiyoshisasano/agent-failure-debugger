@@ -87,14 +87,19 @@ def diagnose(raw_log: dict, adapter: str, **pipeline_kwargs) -> dict:
     failures_dir = _atlas_root / "failures"
 
     # Write matcher input to temp file (matcher expects file path)
-    tmp = Path(tempfile.gettempdir()) / "diagnose_matcher_input.json"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(matcher_input, f)
+    fd, tmp_path = tempfile.mkstemp(suffix=".json")
+    import os
+    os.close(fd)  # close fd immediately, write via open()
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(matcher_input, f)
 
-    matcher_output = []
-    for pattern_file in sorted(failures_dir.glob("*.yaml")):
-        result = run_matcher(str(pattern_file), str(tmp))
-        matcher_output.append(result)
+        matcher_output = []
+        for pattern_file in sorted(failures_dir.glob("*.yaml")):
+            result = run_matcher(str(pattern_file), tmp_path)
+            matcher_output.append(result)
+    finally:
+        os.unlink(tmp_path)
 
     # Step 3: Run debugger pipeline
     from pipeline import run_pipeline
@@ -120,3 +125,42 @@ def diagnose(raw_log: dict, adapter: str, **pipeline_kwargs) -> dict:
     ]
 
     return pipeline_result
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Diagnose agent failures from a raw log file."
+    )
+    parser.add_argument("log", help="Path to raw log JSON file")
+    parser.add_argument(
+        "--adapter", required=True,
+        choices=sorted(_ADAPTERS.keys()),
+        help="Adapter to use for log conversion",
+    )
+    args = parser.parse_args()
+
+    with open(args.log, encoding="utf-8") as f:
+        raw = json.load(f)
+
+    result = diagnose(raw, adapter=args.adapter)
+
+    s = result.get("summary", {})
+    expl = result.get("explanation", {})
+
+    print(f"Root cause:     {s.get('root_cause', 'none')}")
+    print(f"Confidence:     {s.get('root_confidence', 0)}")
+    print(f"Failures:       {s.get('failure_count', 0)}")
+    print(f"Gate:           {s.get('gate_mode', '-')}")
+
+    if expl:
+        print(f"\nContext:        {expl.get('context_summary', '-')}")
+        print(f"Interpretation: {expl.get('interpretation', '-')}")
+        risk = expl.get("risk", {})
+        print(f"Risk:           {risk.get('level', '-').upper()}")
+        print(f"Action:         {expl.get('recommendation', '-')}")
