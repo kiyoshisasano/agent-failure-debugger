@@ -38,7 +38,7 @@ _ADAPTERS = {
     "langchain": ("langchain_adapter", "LangChainAdapter"),
     "langsmith": ("langsmith_adapter", "LangSmithAdapter"),
     "crewai": ("crewai_adapter", "AtlasCrewListener"),
-    "redis_demo": ("redis_demo_adapter", "RedisDemoAdapter"),
+    "redis_help_demo": ("redis_help_demo_adapter", "RedisHelpDemoAdapter"),
 }
 
 
@@ -61,7 +61,7 @@ def diagnose(raw_log: dict, adapter: str, **pipeline_kwargs) -> dict:
 
     Args:
         raw_log: Raw log/response from the agent or service.
-        adapter: Adapter name ("langchain", "langsmith", "crewai", "redis_demo").
+        adapter: Adapter name ("langchain", "langsmith", "crewai", "redis_help_demo").
         **pipeline_kwargs: Passed to run_pipeline (e.g. use_learning, top_k).
 
     Returns:

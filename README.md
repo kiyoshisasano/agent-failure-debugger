@@ -28,7 +28,7 @@ raw_log = {
     "cache_similarity": None,
 }
 
-result = diagnose(raw_log, adapter="redis_demo")
+result = diagnose(raw_log, adapter="redis_help_demo")
 
 print(result["summary"])
 # → {'root_cause': '...', 'failure_count': ..., 'gate_mode': '...', ...}
@@ -46,9 +46,9 @@ One function: adapt → detect → diagnose → explain. Requires [llm-failure-a
 | `langchain` | LangChain / LangGraph traces |
 | `langsmith` | LangSmith run-tree exports |
 | `crewai` | CrewAI crew execution logs |
-| `redis_demo` | Redis RAG + Semantic Cache API responses |
+| `redis_help_demo` | [Redis workshop](https://github.com/redis-developer/movie-recommender-rag-semantic-cache-workshop) Help Center |
 
-If unsure: use `"langchain"` for agent traces, `"redis_demo"` for API responses.
+If unsure: use `"langchain"` for agent traces, `"redis_help_demo"` for the Redis workshop demo.
 
 **CLI:**
 
