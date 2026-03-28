@@ -15,6 +15,11 @@ Use this when:
 - Tools return empty results or errors
 - Behavior changes between runs and you need to understand why
 
+Choose your entry point:
+
+- **During development** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to observe live executions and get automatic diagnosis at runtime
+- **After failures** — use `diagnose()` to analyze a raw log or exported trace after the fact
+
 ### From a raw log (simplest)
 
 ```python
