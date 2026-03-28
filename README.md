@@ -198,7 +198,7 @@ result = run_pipeline(
 
 If `evaluation_runner` is not provided, the built-in counterfactual simulation is used. If the runner raises an exception, the pipeline falls back to `staged_review` deterministically.
 
-For real-world interpretation examples, see [Applied Debugging Examples](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/applied_debugging_examples.md) and [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) in the Atlas repository.
+For real-world interpretation examples — including before/after fix effects — see [Applied Debugging Examples](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/applied_debugging_examples.md) and [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) in the Atlas repository.
 
 ---
 
