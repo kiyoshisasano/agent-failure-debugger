@@ -10,23 +10,31 @@ matcher output → root cause → causal path → fix → auto-apply gate
 
 ## Use the Debugger
 
+Use this when:
+- An agent gives confident answers without data
+- Tools return empty results or errors
+- Behavior changes between runs and you need to understand why
+
 ### From a raw log (simplest)
 
 ```python
 from diagnose import diagnose
 
-# Example: Redis RAG response
+# Example: agent answered without any tool data
 raw_log = {
-    "answer": "Your payment was declined. Check your card details.",
-    "sources": [{"content": "If payment was declined, verify card..."}],
+    "answer": "The Q4 revenue was $4.2M, up 31% year-over-year.",
+    "sources": [],
     "from_cache": False,
     "cache_similarity": None,
 }
 
 result = diagnose(raw_log, adapter="redis_demo")
 
+print(result["summary"])
+# → {'root_cause': '...', 'failure_count': ..., 'gate_mode': '...', ...}
+
 print(result["explanation"]["context_summary"])
-# → "No significant issues detected." or root cause description
+# → describes what happened and why
 ```
 
 One function: adapt → detect → diagnose → explain. Requires [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) as a sibling directory.
@@ -39,6 +47,8 @@ One function: adapt → detect → diagnose → explain. Requires [llm-failure-a
 | `langsmith` | LangSmith run-tree exports |
 | `crewai` | CrewAI crew execution logs |
 | `redis_demo` | Redis RAG + Semantic Cache API responses |
+
+If unsure: use `"langchain"` for agent traces, `"redis_demo"` for API responses.
 
 **CLI:**
 
@@ -65,6 +75,8 @@ print(result["explanation"]["risk"]["level"])
 Use this when you already have matcher output, or when building a custom adapter.
 
 ### From a live agent (via Atlas watch)
+
+Atlas's `watch()` wraps a LangGraph agent and runs the debugger pipeline on completion. It is a separate entry point from `diagnose()` — both produce the same pipeline output but from different starting points: `watch()` captures telemetry from a live execution, while `diagnose()` accepts a raw log after the fact.
 
 If you use [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) for detection, `watch()` runs the debugger automatically:
 
