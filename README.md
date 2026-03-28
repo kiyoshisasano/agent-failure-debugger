@@ -10,6 +10,22 @@ matcher output → root cause → causal path → fix → auto-apply gate
 
 ## Use the Debugger
 
+### From a raw log (simplest)
+
+```python
+from diagnose import diagnose
+
+result = diagnose(raw_log, adapter="langchain")
+
+print(result["summary"]["root_cause"])
+print(result["explanation"]["interpretation"])
+print(result["explanation"]["risk"]["level"])
+```
+
+One function: adapt → detect → diagnose → explain. Requires [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) as a sibling directory.
+
+Available adapters: `langchain`, `langsmith`, `crewai`, `redis_demo`.
+
 ### From matcher output (direct)
 
 ```python
@@ -26,7 +42,7 @@ print(result["explanation"]["interpretation"])
 print(result["explanation"]["risk"]["level"])
 ```
 
-This is the debugger's primary API. It takes matcher output (detected failures) and produces root cause, explanation, fix proposal, and gate decision.
+Use this when you already have matcher output, or when building a custom adapter.
 
 ### From a live agent (via Atlas watch)
 
@@ -232,7 +248,8 @@ matcher_output.json
 
 | File | Role |
 |---|---|
-| `pipeline.py` | API entry point (recommended) |
+| `diagnose.py` | Single entry point: raw log → full diagnosis |
+| `pipeline.py` | Pipeline API (from matcher output) |
 | `main.py` | CLI entry point (diagnosis only) |
 | `config.py` | Paths, weights, thresholds |
 | `graph_loader.py` | Load failure_graph.yaml |
