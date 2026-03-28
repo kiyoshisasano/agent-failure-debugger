@@ -8,19 +8,36 @@ matcher output → root cause → causal path → fix → auto-apply gate
 
 ---
 
-## Add to Your Agent
+## Use the Debugger
+
+### From matcher output (direct)
 
 ```python
-# Your existing LangGraph app
-from your_app import workflow
+from pipeline import run_pipeline
 
-# Add this one line
+result = run_pipeline(
+    matcher_output,
+    use_learning=True,
+    include_explanation=True,
+)
+
+print(result["summary"]["root_cause"])
+print(result["explanation"]["interpretation"])
+print(result["explanation"]["risk"]["level"])
+```
+
+This is the debugger's primary API. It takes matcher output (detected failures) and produces root cause, explanation, fix proposal, and gate decision.
+
+### From a live agent (via Atlas watch)
+
+If you use [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) for detection, `watch()` runs the debugger automatically:
+
+```python
 from adapters.callback_handler import watch
-graph = watch(workflow.compile(), auto_diagnose=True, auto_pipeline=True)
 
-# Run as normal
-result = graph.invoke({"messages": [HumanMessage(content="...")]})
-# → Atlas observes, diagnoses, and explains automatically
+graph = watch(workflow.compile(), auto_diagnose=True, auto_pipeline=True)
+result = graph.invoke({"messages": [...]})
+# → detection + debugger pipeline + explanation printed automatically
 ```
 
 **Try without an API key** (copy-paste-run):
@@ -87,22 +104,7 @@ Output:
 
 ---
 
-## Use as an API
-
-### Full pipeline
-
-```python
-from pipeline import run_pipeline
-
-result = run_pipeline(
-    matcher_output,
-    use_learning=True,
-    include_explanation=True,
-)
-
-print(result["summary"]["root_cause"])
-print(result["summary"]["gate_mode"])
-```
+## API Details
 
 ### Enhanced explanation
 
