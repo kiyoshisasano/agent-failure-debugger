@@ -85,48 +85,100 @@ def compute_auto_apply_score(fix: dict, debugger_output: dict,
 # Hard blockers
 # ---------------------------------------------------------------------------
 
-def check_hard_blockers(fix: dict, execution_plan: dict,
-                        debugger_output: dict | None = None) -> list[str]:
+def _check_hard_blockers_structured(fix: dict, execution_plan: dict,
+                                    debugger_output: dict | None = None) -> list[dict]:
     """
-    Return list of reasons this fix cannot be auto-applied.
+    Return list of structured blockers.
+    Each blocker: {"type": str, "message": str}
     Empty list = no blockers.
     """
     blockers = []
 
     if fix.get("review_required", False):
-        blockers.append("review_required is true")
+        blockers.append({
+            "type": "REVIEW_REQUIRED",
+            "message": "review_required is true",
+        })
 
     if fix.get("safety", "medium") != "high":
-        blockers.append(f"safety is {fix.get('safety', 'unknown')} (must be high)")
+        blockers.append({
+            "type": "SAFETY",
+            "message": f"safety is {fix.get('safety', 'unknown')} (must be high)",
+        })
 
     # Fix type restriction
     allowed_types = {"config_patch", "guard_patch", "prompt_patch"}
     if fix.get("fix_type", "") not in allowed_types:
-        blockers.append(f"fix_type {fix.get('fix_type')} not in auto-apply allowed set")
+        blockers.append({
+            "type": "FIX_TYPE",
+            "message": f"fix_type {fix.get('fix_type')} not in auto-apply allowed set",
+        })
 
     # Execution plan checks
     validation = execution_plan.get("validation", {})
     if not validation.get("safe", True):
-        blockers.append("execution plan validation failed")
+        blockers.append({
+            "type": "PLAN_VALIDATION",
+            "message": "execution plan validation failed",
+        })
 
     conflicts = validation.get("conflicts", [])
     if conflicts:
         groups = [c["group"] for c in conflicts]
-        blockers.append(f"execution plan has conflicts: {groups}")
+        blockers.append({
+            "type": "PLAN_CONFLICT",
+            "message": f"execution plan has conflicts: {groups}",
+        })
 
-    # Grounding signal check: if any diagnosed failure has
-    # grounding_gap_not_acknowledged, force human review.
+    # Grounding signal check
     if debugger_output is not None:
         for failure in debugger_output.get("failures", []):
             signals = failure.get("signals", {})
             if signals.get("grounding_gap_not_acknowledged"):
-                blockers.append(
-                    "grounding gap not acknowledged — "
-                    "agent may have hallucinated without disclosure"
-                )
+                blockers.append({
+                    "type": "GROUNDING",
+                    "message": (
+                        "grounding gap not acknowledged — "
+                        "agent may have hallucinated without disclosure"
+                    ),
+                })
                 break
 
     return blockers
+
+
+def _reason_code_from_blockers(blockers: list[dict]) -> str:
+    """Derive reason_code from structured blockers."""
+    if not blockers:
+        return "APPROVED"
+    # Priority: GROUNDING > SAFETY > others
+    types = {b["type"] for b in blockers}
+    if "GROUNDING" in types:
+        return "GROUNDING_BLOCK"
+    if "SAFETY" in types:
+        return "SAFETY_BLOCK"
+    if "REVIEW_REQUIRED" in types:
+        return "REVIEW_REQUIRED"
+    if "FIX_TYPE" in types:
+        return "FIX_TYPE_BLOCK"
+    if "PLAN_CONFLICT" in types or "PLAN_VALIDATION" in types:
+        return "PLAN_CONFLICT"
+    return "BLOCKED"
+
+
+def check_hard_blockers(fix: dict, execution_plan: dict,
+                        debugger_output: dict | None = None) -> list[str]:
+    """
+    Return list of reasons this fix cannot be auto-applied.
+    Empty list = no blockers.
+
+    Backward-compatible: returns list[str]. Internal logic uses
+    structured blockers for reliable reason_code derivation.
+    """
+    structured = _check_hard_blockers_structured(
+        fix, execution_plan, debugger_output
+    )
+    return [b["message"] for b in structured]
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +247,10 @@ def gate_autofix(debugger_output: dict, autofix_output: dict,
 
     for fix in fixes:
         score = compute_auto_apply_score(fix, debugger_output, policies)
-        blockers = check_hard_blockers(fix, execution_plan, debugger_output)
+        structured_blockers = _check_hard_blockers_structured(
+            fix, execution_plan, debugger_output
+        )
+        blockers = [b["message"] for b in structured_blockers]
 
         if blockers:
             mode = "proposal_only"
@@ -204,20 +259,9 @@ def gate_autofix(debugger_output: dict, autofix_output: dict,
 
         reasons = _score_reasons(score, fix, root_confidence, debugger_output)
 
-        # Determine reason_code from blockers or score
-        if blockers:
-            if any("grounding" in b for b in blockers):
-                reason_code = "GROUNDING_BLOCK"
-            elif any("safety" in b for b in blockers):
-                reason_code = "SAFETY_BLOCK"
-            elif any("review_required" in b for b in blockers):
-                reason_code = "REVIEW_REQUIRED"
-            elif any("fix_type" in b for b in blockers):
-                reason_code = "FIX_TYPE_BLOCK"
-            elif any("conflict" in b or "validation" in b for b in blockers):
-                reason_code = "PLAN_CONFLICT"
-            else:
-                reason_code = "BLOCKED"
+        # Determine reason_code from structured blockers or score
+        if structured_blockers:
+            reason_code = _reason_code_from_blockers(structured_blockers)
         elif mode == "proposal_only":
             reason_code = "LOW_CONFIDENCE"
         elif mode == "staged_review":

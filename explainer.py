@@ -283,6 +283,10 @@ def render_enhanced_draft(package: dict) -> dict:
 
     This extends render_draft() with human-readable sections
     that non-engineers can understand.
+
+    Observation summary is added by the pipeline (not here)
+    because observation_quality comes from matcher_output,
+    which the explainer does not have access to.
     """
     base_draft = render_draft(package)
     grounding = _extract_grounding_signals(package)
@@ -493,6 +497,7 @@ def explain(debugger_output: dict, api_key: str | None = None,
     If use_llm=False, returns the deterministic draft directly.
     If enhanced=True, includes context_summary, interpretation,
     risk assessment, and recommendation in the draft.
+    Observation summary is added by pipeline.py, not here.
     """
     package = build_explanation_package(debugger_output)
 
