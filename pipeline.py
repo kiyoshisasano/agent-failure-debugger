@@ -341,6 +341,35 @@ def run_pipeline(matcher_output: list[dict],
         expl = run_explanation(diagnosis, use_llm=False, enhanced=True)
         result["explanation"] = expl["response"]
 
+        # A1: Add observation summary from matcher_output
+        observed = []
+        missing = []
+        for entry in matcher_output:
+            oq = entry.get("observation_quality", {})
+            for sig_name, info in oq.items():
+                if info.get("observed"):
+                    if sig_name not in observed:
+                        observed.append(sig_name)
+                elif info.get("missing"):
+                    if sig_name not in missing:
+                        missing.append(sig_name)
+        total = len(observed) + len(missing)
+        if total > 0:
+            ratio = len(observed) / total
+            if ratio >= 0.8:
+                coverage = "high"
+            elif ratio >= 0.5:
+                coverage = "medium"
+            else:
+                coverage = "low"
+        else:
+            coverage = "unknown"
+        result["explanation"]["observation"] = {
+            "observed_signals": sorted(observed),
+            "missing_signals": sorted(missing),
+            "coverage": coverage,
+        }
+
     return result
 
 

@@ -204,10 +204,32 @@ def gate_autofix(debugger_output: dict, autofix_output: dict,
 
         reasons = _score_reasons(score, fix, root_confidence, debugger_output)
 
+        # Determine reason_code from blockers or score
+        if blockers:
+            if any("grounding" in b for b in blockers):
+                reason_code = "GROUNDING_BLOCK"
+            elif any("safety" in b for b in blockers):
+                reason_code = "SAFETY_BLOCK"
+            elif any("review_required" in b for b in blockers):
+                reason_code = "REVIEW_REQUIRED"
+            elif any("fix_type" in b for b in blockers):
+                reason_code = "FIX_TYPE_BLOCK"
+            elif any("conflict" in b or "validation" in b for b in blockers):
+                reason_code = "PLAN_CONFLICT"
+            else:
+                reason_code = "BLOCKED"
+        elif mode == "proposal_only":
+            reason_code = "LOW_CONFIDENCE"
+        elif mode == "staged_review":
+            reason_code = "MODERATE_CONFIDENCE"
+        else:
+            reason_code = "APPROVED"
+
         fix_gates.append({
             "target_failure": fix["target_failure"],
             "mode": mode,
             "score": score,
+            "reason_code": reason_code,
             "reasons": reasons,
             "blocked_by": blockers,
         })
