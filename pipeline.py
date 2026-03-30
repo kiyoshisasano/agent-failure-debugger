@@ -29,13 +29,11 @@ from formatter import format_output
 from decision_support import decide
 from autofix import generate_autofix
 from execute_fix import build_execution_plan
-from auto_apply import gate_autofix, maybe_apply
+from auto_apply import gate_autofix
 from abstraction import abstract
 from explainer import explain as run_explanation
-from evaluate_fix import (
-    simulate_after_state, compute_delta, detect_regressions,
-    decide_keep_or_rollback,
-)
+from pipeline_post_apply import run_post_apply
+from pipeline_summary import build_pipeline_summary
 
 
 # ---------------------------------------------------------------------------
@@ -183,19 +181,6 @@ def run_fix(debugger_output: dict,
 # ---------------------------------------------------------------------------
 # Evaluation runner support (Phase 25-lite)
 # ---------------------------------------------------------------------------
-
-def _decision_from_runner_result(result: dict) -> str:
-    """
-    Convert external evaluation runner result to keep/review/rollback decision.
-    """
-    if result.get("has_hard_regression"):
-        return "rollback"
-    if not result.get("success", False):
-        return "review"
-    return "keep"
-
-
-# ---------------------------------------------------------------------------
 # Full pipeline
 # ---------------------------------------------------------------------------
 
@@ -267,70 +252,16 @@ def run_pipeline(matcher_output: list[dict],
         auto_apply=False,  # handle auto_apply here with runner support
     )
 
-    # Step 3b: Auto-apply with evaluation_runner support (Phase 25-lite)
-    if auto_apply and fix_result["gate"]["gate"]["mode"] == "auto_apply":
-        if evaluation_runner is not None:
-            # External evaluation: delegate to user's environment
-            runner_input = {
-                "autofix": fix_result["autofix"],
-                "execution_plan": fix_result["execution_plan"],
-                "diagnosis_summary": {
-                    "root_cause": (diagnosis["root_ranking"][0]["id"]
-                                   if diagnosis.get("root_ranking") else "unknown"),
-                    "failure_count": len(diagnosis.get("failures", [])),
-                },
-            }
-            try:
-                runner_result = evaluation_runner(runner_input)
-            except Exception as e:
-                # External evaluation failed — fall back to staged_review
-                # deterministically rather than crashing the pipeline.
-                fix_result["gate"]["post_apply"] = {
-                    "evaluation_mode": "runner",
-                    "runner_result": None,
-                    "evaluation_decision": "review",
-                    "rollback_executed": False,
-                    "runner_error": str(e),
-                }
-                runner_result = None
-
-            if runner_result is not None:
-                fix_result["gate"]["post_apply"] = {
-                    "evaluation_mode": "runner",
-                    "runner_result": runner_result,
-                    "evaluation_decision": _decision_from_runner_result(runner_result),
-                    "rollback_executed": runner_result.get("has_hard_regression", False),
-                }
-        else:
-            # Built-in counterfactual evaluation
-            graph = load_graph(str(GRAPH_PATH))
-            apply_result = maybe_apply(
-                fix_result["gate"], diagnosis, fix_result["autofix"],
-                fix_result["execution_plan"], graph
-            )
-            fix_result["gate"] = apply_result
+    # Step 3b: Post-apply evaluation
+    fix_result = run_post_apply(
+        diagnosis, fix_result,
+        auto_apply=auto_apply,
+        evaluation_runner=evaluation_runner,
+        graph_path=str(GRAPH_PATH),
+    )
 
     # Step 4: Summary
-    root = diagnosis["root_ranking"][0] if diagnosis.get("root_ranking") else {}
-    gate = fix_result["gate"].get("gate", {})
-    fixes = fix_result["autofix"].get("recommended_fixes", [])
-    post_apply = fix_result["gate"].get("post_apply")
-
-    summary = {
-        "root_cause": root.get("id", "unknown"),
-        "root_confidence": root.get("score", 0.0),
-        "failure_count": len(diagnosis.get("failures", [])),
-        "fix_count": len(fixes),
-        "gate_mode": gate.get("mode", "unknown"),
-        "gate_score": gate.get("score", 0.0),
-    }
-
-    if post_apply:
-        summary["applied"] = True
-        summary["evaluation_decision"] = post_apply.get("evaluation_decision")
-        summary["rollback"] = post_apply.get("rollback_executed", False)
-    else:
-        summary["applied"] = False
+    summary = build_pipeline_summary(diagnosis, fix_result)
 
     result = {
         "diagnosis": diagnosis,
@@ -341,45 +272,59 @@ def run_pipeline(matcher_output: list[dict],
     if abstraction_output:
         result["abstraction"] = abstraction_output
 
+    # Step 5: Explanation (optional)
     if include_explanation:
-        expl = run_explanation(
-            diagnosis, use_llm=False, enhanced=True,
-            diagnosis_context=diagnosis_context,
+        result["explanation"] = _build_explanation_block(
+            diagnosis, matcher_output, diagnosis_context
         )
-        result["explanation"] = expl["response"]
-
-        # If explainer didn't include observation (no context provided),
-        # fall back to deriving from matcher_output.
-        if "observation" not in result["explanation"]:
-            observed = []
-            missing = []
-            for entry in matcher_output:
-                oq = entry.get("observation_quality", {})
-                for sig_name, info in oq.items():
-                    if info.get("observed"):
-                        if sig_name not in observed:
-                            observed.append(sig_name)
-                    elif info.get("missing"):
-                        if sig_name not in missing:
-                            missing.append(sig_name)
-            total = len(observed) + len(missing)
-            if total > 0:
-                ratio = len(observed) / total
-                if ratio >= 0.8:
-                    coverage = "high"
-                elif ratio >= 0.5:
-                    coverage = "medium"
-                else:
-                    coverage = "low"
-            else:
-                coverage = "unknown"
-            result["explanation"]["observation"] = {
-                "observed_signals": sorted(observed),
-                "missing_signals": sorted(missing),
-                "coverage": coverage,
-            }
 
     return result
+
+
+def _build_explanation_block(diagnosis: dict, matcher_output: list,
+                             diagnosis_context: dict | None = None) -> dict:
+    """Build explanation with observation summary.
+
+    Uses diagnosis_context if available, otherwise falls back to
+    deriving observation quality from matcher_output.
+    """
+    expl = run_explanation(
+        diagnosis, use_llm=False, enhanced=True,
+        diagnosis_context=diagnosis_context,
+    )
+    explanation = expl["response"]
+
+    # Fallback: if explainer didn't include observation
+    if "observation" not in explanation:
+        observed = []
+        missing = []
+        for entry in matcher_output:
+            oq = entry.get("observation_quality", {})
+            for sig_name, info in oq.items():
+                if info.get("observed"):
+                    if sig_name not in observed:
+                        observed.append(sig_name)
+                elif info.get("missing"):
+                    if sig_name not in missing:
+                        missing.append(sig_name)
+        total = len(observed) + len(missing)
+        if total > 0:
+            ratio = len(observed) / total
+            if ratio >= 0.8:
+                coverage = "high"
+            elif ratio >= 0.5:
+                coverage = "medium"
+            else:
+                coverage = "low"
+        else:
+            coverage = "unknown"
+        explanation["observation"] = {
+            "observed_signals": sorted(observed),
+            "missing_signals": sorted(missing),
+            "coverage": coverage,
+        }
+
+    return explanation
 
 
 # ---------------------------------------------------------------------------
