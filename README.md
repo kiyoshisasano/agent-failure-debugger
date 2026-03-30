@@ -136,7 +136,10 @@ print(expl["context_summary"])     # what happened
 print(expl["interpretation"])      # why it happened
 print(expl["risk"]["level"])       # HIGH / MEDIUM / LOW
 print(expl["recommendation"])      # what to do
+print(expl["observation"])         # signal coverage info
 ```
+
+When observation coverage is low (many signals were not observed), the risk level is automatically raised and the interpretation notes that the diagnosis may be incomplete.
 
 CLI: `python explain.py --enhanced debugger_output.json`
 
@@ -238,14 +241,15 @@ Hard blockers (force proposal_only regardless of score):
 
 ```
 matcher_output.json
-  → main.py             causal resolution + root ranking
-  → abstraction.py      top-k path selection
-  → explainer.py        deterministic draft + optional LLM smoothing
-  → decision_support.py priority scoring + action plan
-  → autofix.py          fix selection + patch generation
-  → auto_apply.py       confidence gate
-  → execute_fix.py      dependency ordering + staged apply
-  → evaluate_fix.py     before/after simulation + regression detection
+  → pipeline.py (orchestrator)
+    ├ main.py               causal resolution + root ranking
+    ├ abstraction.py        top-k path selection (optional)
+    ├ decision_support.py   priority scoring + action plan
+    ├ autofix.py            fix selection + patch generation
+    ├ auto_apply.py         confidence gate + reason_code
+    ├ pipeline_post_apply.py  evaluation runner or counterfactual
+    ├ pipeline_summary.py     summary generation
+    └ explainer.py          explanation (context + risk + observation)
 ```
 
 ---
@@ -255,7 +259,9 @@ matcher_output.json
 | File | Role |
 |---|---|
 | `diagnose.py` | Single entry point: raw log → full diagnosis |
-| `pipeline.py` | Pipeline API (from matcher output) |
+| `pipeline.py` | Pipeline orchestrator (from matcher output) |
+| `pipeline_post_apply.py` | Post-apply evaluation (runner + counterfactual) |
+| `pipeline_summary.py` | Summary generation |
 | `main.py` | CLI entry point (diagnosis only) |
 | `config.py` | Paths, weights, thresholds |
 | `graph_loader.py` | Load failure_graph.yaml |
