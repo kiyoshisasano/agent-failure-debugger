@@ -23,6 +23,8 @@ Choose your entry point:
 - **During development** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to observe live executions and diagnose behavior as it happens
 - **After failures** — use `diagnose()` to analyze a raw log or exported trace after the fact
 
+Atlas detects failures; the debugger explains why they happened and proposes fixes. You can use Atlas alone for detection, but diagnosis requires the debugger.
+
 ### From a raw log (simplest)
 
 ```python
@@ -45,9 +47,21 @@ print(result["explanation"]["context_summary"])
 # → describes what happened and why
 ```
 
-One function: adapt → detect → diagnose → explain. Requires [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) as a sibling directory.
+`raw_log` is a loosely structured dict — its format depends on the source. The adapter normalizes it into the telemetry format Atlas expects.
+
+One function: adapt → detect → diagnose → explain. Requires [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) cloned at the same directory level (sibling directory).
+
+**Directory layout:**
+
+```
+atlas-workspace/
+  llm-failure-atlas/      ← Atlas
+  agent-failure-debugger/  ← Debugger
+```
 
 **Which adapter to use:**
+
+Adapters normalize raw logs from different sources into Atlas's telemetry format.
 
 | Adapter | Use for |
 |---|---|
