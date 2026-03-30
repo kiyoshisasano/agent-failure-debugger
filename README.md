@@ -54,9 +54,9 @@ One function: adapt → detect → diagnose → explain. Requires [llm-failure-a
 **Directory layout:**
 
 ```
-atlas-workspace/
-  llm-failure-atlas/      ← Atlas
-  agent-failure-debugger/  ← Debugger
+your-workspace/
+  llm-failure-atlas/      ← Atlas (detection)
+  agent-failure-debugger/  ← Debugger (diagnosis)
 ```
 
 **Which adapter to use:**
