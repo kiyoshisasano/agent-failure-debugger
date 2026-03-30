@@ -244,7 +244,7 @@ def run_pipeline(matcher_output: list[dict],
     if include_abstraction:
         abstraction_output = abstract(diagnosis)
 
-    # Step 3: Fix pipeline
+    # Step 3: Action layer (fix + gate + post-apply)
     fix_result = run_fix(
         diagnosis,
         use_learning=use_learning,

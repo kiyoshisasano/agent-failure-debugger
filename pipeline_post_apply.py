@@ -30,6 +30,23 @@ def run_post_apply(diagnosis: dict, fix_result: dict,
 
     Modifies fix_result in place (adds post_apply to gate).
     Returns fix_result for convenience.
+
+    Return structure (fix_result):
+        {
+            "decision": {...},
+            "autofix": {"recommended_fixes": [...]},
+            "execution_plan": {...},
+            "gate": {
+                "gate": {"mode": str, "score": float, ...},
+                "fix_gates": [...],
+                "post_apply": {              # added by this function
+                    "evaluation_mode": str,  # "runner" or "builtin"
+                    "runner_result": dict | None,
+                    "evaluation_decision": str,  # "keep" | "review" | "rollback"
+                    "rollback_executed": bool,
+                } | None
+            }
+        }
     """
     if not auto_apply:
         return fix_result
