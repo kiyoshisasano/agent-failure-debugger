@@ -55,6 +55,65 @@ def _load_adapter(name: str):
     return cls()
 
 
+def _build_diagnosis_context(raw_log: dict, adapter_name: str,
+                             matcher_input: dict,
+                             matcher_output: list) -> dict:
+    """
+    Build a diagnosis context dict that consolidates:
+      - raw: original log data
+      - observed: adapter-produced telemetry
+      - quality: observation quality from matcher
+      - metadata: adapter name, timestamp, counts
+
+    This is the internal contract between diagnose() and pipeline.
+    Not a public API — structure may change.
+    """
+    import time
+
+    # Collect observation quality across all patterns
+    observed = []
+    missing = []
+    for entry in matcher_output:
+        oq = entry.get("observation_quality", {})
+        for sig_name, info in oq.items():
+            if info.get("observed"):
+                if sig_name not in observed:
+                    observed.append(sig_name)
+            elif info.get("missing"):
+                if sig_name not in missing:
+                    missing.append(sig_name)
+
+    total = len(observed) + len(missing)
+    if total > 0:
+        ratio = len(observed) / total
+        if ratio >= 0.8:
+            coverage = "high"
+        elif ratio >= 0.5:
+            coverage = "medium"
+        else:
+            coverage = "low"
+    else:
+        coverage = "unknown"
+
+    diagnosed_count = sum(1 for r in matcher_output if r.get("diagnosed"))
+
+    return {
+        "raw": raw_log,
+        "observed": matcher_input,
+        "quality": {
+            "observed_signals": sorted(observed),
+            "missing_signals": sorted(missing),
+            "coverage": coverage,
+        },
+        "metadata": {
+            "adapter": adapter_name,
+            "timestamp": time.time(),
+            "pattern_count": len(matcher_output),
+            "diagnosed_count": diagnosed_count,
+        },
+    }
+
+
 def diagnose(raw_log: dict, adapter: str, **pipeline_kwargs) -> dict:
     """
     Run the full pipeline: adapt → match → diagnose → explain.
@@ -65,7 +124,7 @@ def diagnose(raw_log: dict, adapter: str, **pipeline_kwargs) -> dict:
         **pipeline_kwargs: Passed to run_pipeline (e.g. use_learning, top_k).
 
     Returns:
-        Dict with: diagnosis, fix, summary, explanation.
+        Dict with: diagnosis, fix, summary, explanation, telemetry, matcher_output.
 
     Raises:
         ValueError: If adapter name is unknown.
@@ -86,10 +145,9 @@ def diagnose(raw_log: dict, adapter: str, **pipeline_kwargs) -> dict:
     from matcher import run as run_matcher
     failures_dir = _atlas_root / "failures"
 
-    # Write matcher input to temp file (matcher expects file path)
     fd, tmp_path = tempfile.mkstemp(suffix=".json")
     import os
-    os.close(fd)  # close fd immediately, write via open()
+    os.close(fd)
     try:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(matcher_input, f)
@@ -101,7 +159,12 @@ def diagnose(raw_log: dict, adapter: str, **pipeline_kwargs) -> dict:
     finally:
         os.unlink(tmp_path)
 
-    # Step 3: Run debugger pipeline
+    # Step 3: Build diagnosis context
+    context = _build_diagnosis_context(
+        raw_log, adapter, matcher_input, matcher_output
+    )
+
+    # Step 4: Run debugger pipeline
     from pipeline import run_pipeline
 
     defaults = {
@@ -110,9 +173,11 @@ def diagnose(raw_log: dict, adapter: str, **pipeline_kwargs) -> dict:
     }
     defaults.update(pipeline_kwargs)
 
-    pipeline_result = run_pipeline(matcher_output, **defaults)
+    pipeline_result = run_pipeline(
+        matcher_output, diagnosis_context=context, **defaults
+    )
 
-    # Add raw telemetry for inspection
+    # Add telemetry and diagnosed failures for inspection
     pipeline_result["telemetry"] = matcher_input
     pipeline_result["matcher_output"] = [
         {

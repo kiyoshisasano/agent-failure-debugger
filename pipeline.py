@@ -205,7 +205,8 @@ def run_pipeline(matcher_output: list[dict],
                  auto_apply: bool = False,
                  include_abstraction: bool = False,
                  include_explanation: bool = False,
-                 evaluation_runner=None) -> dict:
+                 evaluation_runner=None,
+                 diagnosis_context: dict | None = None) -> dict:
     """
     Run the complete pipeline: diagnosis → fix → evaluation.
 
@@ -219,6 +220,9 @@ def run_pipeline(matcher_output: list[dict],
         include_abstraction: Include abstraction layer output.
         include_explanation: Include enhanced explanation in result.
         evaluation_runner: Optional callback for external evaluation.
+        diagnosis_context: Optional context dict from diagnose().
+            If provided, observation summary is taken from context
+            instead of re-deriving from matcher_output.
             If provided and auto_apply gate passes, this function is called
             instead of the built-in counterfactual simulation.
             Signature: evaluation_runner(patch_bundle: dict) -> dict
@@ -341,34 +345,38 @@ def run_pipeline(matcher_output: list[dict],
         expl = run_explanation(diagnosis, use_llm=False, enhanced=True)
         result["explanation"] = expl["response"]
 
-        # A1: Add observation summary from matcher_output
-        observed = []
-        missing = []
-        for entry in matcher_output:
-            oq = entry.get("observation_quality", {})
-            for sig_name, info in oq.items():
-                if info.get("observed"):
-                    if sig_name not in observed:
-                        observed.append(sig_name)
-                elif info.get("missing"):
-                    if sig_name not in missing:
-                        missing.append(sig_name)
-        total = len(observed) + len(missing)
-        if total > 0:
-            ratio = len(observed) / total
-            if ratio >= 0.8:
-                coverage = "high"
-            elif ratio >= 0.5:
-                coverage = "medium"
-            else:
-                coverage = "low"
+        # Observation summary: prefer diagnosis_context if available,
+        # otherwise derive from matcher_output (backward compatible).
+        if diagnosis_context and "quality" in diagnosis_context:
+            result["explanation"]["observation"] = diagnosis_context["quality"]
         else:
-            coverage = "unknown"
-        result["explanation"]["observation"] = {
-            "observed_signals": sorted(observed),
-            "missing_signals": sorted(missing),
-            "coverage": coverage,
-        }
+            observed = []
+            missing = []
+            for entry in matcher_output:
+                oq = entry.get("observation_quality", {})
+                for sig_name, info in oq.items():
+                    if info.get("observed"):
+                        if sig_name not in observed:
+                            observed.append(sig_name)
+                    elif info.get("missing"):
+                        if sig_name not in missing:
+                            missing.append(sig_name)
+            total = len(observed) + len(missing)
+            if total > 0:
+                ratio = len(observed) / total
+                if ratio >= 0.8:
+                    coverage = "high"
+                elif ratio >= 0.5:
+                    coverage = "medium"
+                else:
+                    coverage = "low"
+            else:
+                coverage = "unknown"
+            result["explanation"]["observation"] = {
+                "observed_signals": sorted(observed),
+                "missing_signals": sorted(missing),
+                "coverage": coverage,
+            }
 
     return result
 
