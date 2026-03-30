@@ -260,7 +260,8 @@ def _build_context_summary(package: dict, grounding: dict) -> str:
     return " ".join(parts) if parts else "No significant context to report."
 
 
-def _build_interpretation(package: dict, grounding: dict) -> str:
+def _build_interpretation(package: dict, grounding: dict,
+                          diagnosis_context: dict | None = None) -> str:
     """Build a human-readable interpretation of why the failure occurred."""
     primary = package.get("primary_path") or []
     if not primary:
@@ -284,20 +285,46 @@ def _build_interpretation(package: dict, grounding: dict) -> str:
         parts.append("The agent responded confidently despite having "
                      "no grounded evidence, which may indicate hallucination.")
 
+    # Observation quality influence
+    if diagnosis_context and "quality" in diagnosis_context:
+        quality = diagnosis_context["quality"]
+        coverage = quality.get("coverage", "unknown")
+        missing = quality.get("missing_signals", [])
+
+        if coverage == "low":
+            parts.append("Note: this diagnosis is based on limited "
+                         "observations and may be incomplete.")
+        if missing:
+            missing_descs = [_describe_signal(s) for s in missing[:3]]
+            suffix = f" (and {len(missing) - 3} more)" if len(missing) > 3 else ""
+            parts.append("The following signals were not observed: "
+                         + ", ".join(missing_descs) + suffix + ".")
+
     return " ".join(parts)
 
 
-def _build_recommendation(risk_level: str, package: dict) -> str:
+def _build_recommendation(risk_level: str, package: dict,
+                          diagnosis_context: dict | None = None) -> str:
     """Build a human-readable recommendation based on risk level."""
+    coverage = "unknown"
+    if diagnosis_context and "quality" in diagnosis_context:
+        coverage = diagnosis_context["quality"].get("coverage", "unknown")
+
     if risk_level == "high":
-        return ("Do not auto-apply fixes. Require human review of "
+        base = ("Do not auto-apply fixes. Require human review of "
                 "both the diagnosis and the proposed fix before action.")
     elif risk_level == "medium":
-        return ("Review the proposed fix before applying. "
+        base = ("Review the proposed fix before applying. "
                 "Verify that the root cause assessment is correct.")
     else:
-        return ("Low-risk issue. Fix can be applied with standard "
+        base = ("Low-risk issue. Fix can be applied with standard "
                 "review process.")
+
+    if coverage == "low":
+        base += (" Consider collecting additional telemetry before "
+                 "applying fixes, as observation coverage is limited.")
+
+    return base
 
 
 def render_enhanced_draft(package: dict,
@@ -320,12 +347,16 @@ def render_enhanced_draft(package: dict,
     risk_level, risk_justification = _assess_risk(package, grounding, coverage)
 
     base_draft["context_summary"] = _build_context_summary(package, grounding)
-    base_draft["interpretation"] = _build_interpretation(package, grounding)
+    base_draft["interpretation"] = _build_interpretation(
+        package, grounding, diagnosis_context
+    )
     base_draft["risk"] = {
         "level": risk_level,
         "justification": risk_justification,
     }
-    base_draft["recommendation"] = _build_recommendation(risk_level, package)
+    base_draft["recommendation"] = _build_recommendation(
+        risk_level, package, diagnosis_context
+    )
 
     # Include observation summary if context is available
     if diagnosis_context and "quality" in diagnosis_context:
