@@ -342,14 +342,15 @@ def run_pipeline(matcher_output: list[dict],
         result["abstraction"] = abstraction_output
 
     if include_explanation:
-        expl = run_explanation(diagnosis, use_llm=False, enhanced=True)
+        expl = run_explanation(
+            diagnosis, use_llm=False, enhanced=True,
+            diagnosis_context=diagnosis_context,
+        )
         result["explanation"] = expl["response"]
 
-        # Observation summary: prefer diagnosis_context if available,
-        # otherwise derive from matcher_output (backward compatible).
-        if diagnosis_context and "quality" in diagnosis_context:
-            result["explanation"]["observation"] = diagnosis_context["quality"]
-        else:
+        # If explainer didn't include observation (no context provided),
+        # fall back to deriving from matcher_output.
+        if "observation" not in result["explanation"]:
             observed = []
             missing = []
             for entry in matcher_output:

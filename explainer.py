@@ -175,39 +175,63 @@ def _extract_grounding_signals(package: dict) -> dict:
     return grounding
 
 
-def _assess_risk(package: dict, grounding: dict) -> tuple:
+def _assess_risk(package: dict, grounding: dict,
+                 coverage: str = "unknown") -> tuple:
     """Determine risk level and justification.
+
+    Args:
+        package: explanation package
+        grounding: grounding signal states
+        coverage: observation coverage level ("high"/"medium"/"low"/"unknown")
 
     Returns:
         (level, justification) where level is "high"/"medium"/"low".
+
+    When coverage is "low", the risk level is raised by one step
+    because the diagnosis is based on incomplete observations.
     """
     ranking = package.get("root_ranking", [])
     top_score = ranking[0]["score"] if ranking else 0.0
     conflicts = package.get("conflicts", [])
 
-    # High risk: unacknowledged grounding gap or high-confidence root
+    # Determine base risk level
     if grounding["gap_not_acknowledged"]:
-        return ("high",
-                "The agent produced output without grounded data "
-                "and did not disclose the gap.")
-    if top_score >= 0.85 and not conflicts:
-        return ("high",
-                "High-confidence root cause with no competing explanations.")
-
-    # Medium risk: grounding gap acknowledged, or moderate confidence
-    if grounding["data_absent"]:
-        return ("medium",
-                "Data was unavailable but the agent disclosed this. "
-                "Output may contain unverified information.")
-    if top_score >= 0.65:
-        return ("medium",
-                "Moderate-confidence diagnosis. "
-                "Review recommended before acting on the fix.")
-
-    # Low
-    return ("low",
+        base_level = "high"
+        justification = (
+            "The agent produced output without grounded data "
+            "and did not disclose the gap.")
+    elif top_score >= 0.85 and not conflicts:
+        base_level = "high"
+        justification = (
+            "High-confidence root cause with no competing explanations.")
+    elif grounding["data_absent"]:
+        base_level = "medium"
+        justification = (
+            "Data was unavailable but the agent disclosed this. "
+            "Output may contain unverified information.")
+    elif top_score >= 0.65:
+        base_level = "medium"
+        justification = (
+            "Moderate-confidence diagnosis. "
+            "Review recommended before acting on the fix.")
+    else:
+        base_level = "low"
+        justification = (
             "Low-confidence or minor issue. "
             "Monitor but no immediate action required.")
+
+    # Coverage adjustment: low coverage raises risk by one step
+    if coverage == "low":
+        if base_level == "low":
+            return ("medium",
+                    justification + " Observation coverage is low — "
+                    "diagnosis may be based on incomplete data.")
+        elif base_level == "medium":
+            return ("high",
+                    justification + " Observation coverage is low — "
+                    "confidence in this assessment is reduced.")
+
+    return (base_level, justification)
 
 
 def _build_context_summary(package: dict, grounding: dict) -> str:
@@ -276,21 +300,24 @@ def _build_recommendation(risk_level: str, package: dict) -> str:
                 "review process.")
 
 
-def render_enhanced_draft(package: dict) -> dict:
+def render_enhanced_draft(package: dict,
+                         diagnosis_context: dict | None = None) -> dict:
     """
     Build an enhanced explanation with context, interpretation,
     risk assessment, and recommendation.
 
-    This extends render_draft() with human-readable sections
-    that non-engineers can understand.
-
-    Observation summary is added by the pipeline (not here)
-    because observation_quality comes from matcher_output,
-    which the explainer does not have access to.
+    If diagnosis_context is provided, observation quality influences
+    risk assessment and observation summary is included in the draft.
     """
     base_draft = render_draft(package)
     grounding = _extract_grounding_signals(package)
-    risk_level, risk_justification = _assess_risk(package, grounding)
+
+    # Extract coverage from context if available
+    coverage = "unknown"
+    if diagnosis_context and "quality" in diagnosis_context:
+        coverage = diagnosis_context["quality"].get("coverage", "unknown")
+
+    risk_level, risk_justification = _assess_risk(package, grounding, coverage)
 
     base_draft["context_summary"] = _build_context_summary(package, grounding)
     base_draft["interpretation"] = _build_interpretation(package, grounding)
@@ -299,6 +326,10 @@ def render_enhanced_draft(package: dict) -> dict:
         "justification": risk_justification,
     }
     base_draft["recommendation"] = _build_recommendation(risk_level, package)
+
+    # Include observation summary if context is available
+    if diagnosis_context and "quality" in diagnosis_context:
+        base_draft["observation"] = diagnosis_context["quality"]
 
     return base_draft
 
@@ -489,7 +520,8 @@ def validate(response: dict, package: dict) -> list[str]:
 def explain(debugger_output: dict, api_key: str | None = None,
             model: str = "claude-sonnet-4-20250514",
             use_llm: bool = True,
-            enhanced: bool = False) -> dict:
+            enhanced: bool = False,
+            diagnosis_context: dict | None = None) -> dict:
     """
     Full pipeline:
       debugger output → package → draft → (optional LLM) → validated response.
@@ -497,12 +529,13 @@ def explain(debugger_output: dict, api_key: str | None = None,
     If use_llm=False, returns the deterministic draft directly.
     If enhanced=True, includes context_summary, interpretation,
     risk assessment, and recommendation in the draft.
-    Observation summary is added by pipeline.py, not here.
+    If diagnosis_context is provided, observation quality influences
+    risk assessment.
     """
     package = build_explanation_package(debugger_output)
 
     if enhanced:
-        draft = render_enhanced_draft(package)
+        draft = render_enhanced_draft(package, diagnosis_context)
     else:
         draft = render_draft(package)
 
