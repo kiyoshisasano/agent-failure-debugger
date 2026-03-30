@@ -7,7 +7,7 @@ Usage:
 
 Defaults:
   input.json          matcher output (list of failure results)
-  failure_graph.yaml  Atlas causal graph
+  failure_graph.yaml  Atlas causal graph (resolved via config.py)
 """
 
 import json
@@ -17,10 +17,16 @@ from graph_loader import load_graph
 from causal_resolver import resolve
 from formatter import format_output
 
+try:
+    from config import GRAPH_PATH
+    _default_graph = str(GRAPH_PATH)
+except ImportError:
+    _default_graph = "failure_graph.yaml"
+
 
 def main():
     input_path = sys.argv[1] if len(sys.argv) > 1 else "input.json"
-    graph_path = sys.argv[2] if len(sys.argv) > 2 else "failure_graph.yaml"
+    graph_path = sys.argv[2] if len(sys.argv) > 2 else _default_graph
 
     with open(input_path, encoding="utf-8") as f:
         matcher_output = json.load(f)
