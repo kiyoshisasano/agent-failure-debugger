@@ -30,15 +30,15 @@ Atlas detects failures; the debugger explains why they happened and proposes fix
 ```python
 from diagnose import diagnose
 
-# Example: agent answered without any tool data
+# Example: LangChain agent trace (no tool data)
 raw_log = {
-    "answer": "The Q4 revenue was $4.2M, up 31% year-over-year.",
-    "sources": [],
-    "from_cache": False,
-    "cache_similarity": None,
+    "steps": [
+        {"type": "llm", "output": "The Q4 revenue was $4.2M, up 31% year-over-year."}
+    ],
+    "tool_calls": [],
 }
 
-result = diagnose(raw_log, adapter="redis_help_demo")
+result = diagnose(raw_log, adapter="langchain")
 
 print(result["summary"])
 # → {'root_cause': '...', 'failure_count': ..., 'gate_mode': '...', ...}
@@ -71,6 +71,8 @@ Adapters normalize raw logs from different sources into Atlas's telemetry format
 | `redis_help_demo` | [Redis workshop](https://github.com/redis-developer/movie-recommender-rag-semantic-cache-workshop) Help Center |
 
 If unsure: use `"langchain"` for agent traces, `"redis_help_demo"` for the Redis workshop demo.
+
+Note: `crewai` and `redis_help_demo` adapters do not yet produce `state` or `grounding` telemetry. Some failure patterns (e.g., `agent_tool_call_loop`) may not fire through these adapters. See the [Atlas adapter verification status](https://github.com/kiyoshisasano/llm-failure-atlas#tested-with-real-agents) for details.
 
 **CLI:**
 
