@@ -3,7 +3,7 @@
 Diagnoses *why* your LLM agent failed, not just *what* failed. Deterministic causal analysis with fix generation.
 
 ```python
-from diagnose import diagnose
+from agent_failure_debugger import diagnose
 
 result = diagnose(raw_log, adapter="langchain")
 print(result["explanation"]["context_summary"])
@@ -28,7 +28,7 @@ Atlas detects failures; the debugger explains why they happened and proposes fix
 ### From a raw log (simplest)
 
 ```python
-from diagnose import diagnose
+from agent_failure_debugger import diagnose
 
 # Example: LangChain agent trace (no tool data)
 raw_log = {
@@ -49,15 +49,9 @@ print(result["explanation"]["context_summary"])
 
 `raw_log` is a loosely structured dict — its format depends on the source. The adapter normalizes it into the telemetry format Atlas expects. The more structured and complete the log (especially tool calls and outputs), the more accurate the diagnosis. Minimal logs may result in incomplete or degraded analysis.
 
-One function: adapt → detect → diagnose → explain. Requires [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) cloned at the same directory level (sibling directory).
+One function: adapt → detect → diagnose → explain. Atlas is installed automatically as a dependency.
 
-**Directory layout:**
 
-```
-your-workspace/
-  llm-failure-atlas/      ← Atlas (detection)
-  agent-failure-debugger/  ← Debugger (diagnosis)
-```
 
 **Which adapter to use:**
 
@@ -77,13 +71,13 @@ Note: `crewai` and `redis_help_demo` adapters do not yet produce `state` or `gro
 **CLI:**
 
 ```bash
-python diagnose.py log.json --adapter langchain
+python -m agent_failure_debugger.diagnose log.json --adapter langchain
 ```
 
 ### From matcher output (direct)
 
 ```python
-from pipeline import run_pipeline
+from agent_failure_debugger.pipeline import run_pipeline
 
 result = run_pipeline(
     matcher_output,
@@ -105,7 +99,7 @@ Atlas's `watch()` wraps a LangGraph agent and runs the debugger pipeline on comp
 If you use [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) for detection, `watch()` runs the debugger automatically:
 
 ```python
-from adapters.callback_handler import watch
+from llm_failure_atlas.adapters.callback_handler import watch
 
 graph = watch(workflow.compile(), auto_diagnose=True, auto_pipeline=True)
 result = graph.invoke({"messages": [...]})
@@ -118,15 +112,19 @@ For a copy-paste example without an API key, see [Reproducible Examples](#reprod
 
 ## Quick Start
 
-To run the full pipeline with real matcher output (requires both repositories cloned as siblings):
+To run the full pipeline with real matcher output:
 
 ```bash
-git clone https://github.com/kiyoshisasano/agent-failure-debugger.git
-cd agent-failure-debugger
-pip install -r requirements.txt
+pip install agent-failure-debugger
 
-# Run with sample data
-python pipeline.py ../llm-failure-atlas/examples/simple/matcher_output.json --use-learning
+# Run with sample data (Python)
+python -c "
+from agent_failure_debugger.pipeline import run_pipeline
+import json
+# Use your own matcher_output.json
+result = run_pipeline(matcher_output, use_learning=True)
+print(result['summary'])
+"
 ```
 
 Output:
@@ -157,12 +155,12 @@ print(expl["observation"])         # signal coverage info
 
 When observation coverage is low (many signals were not observed), the risk level is automatically raised and the interpretation notes that the diagnosis may be incomplete.
 
-CLI: `python explain.py --enhanced debugger_output.json`
+CLI: `python -m agent_failure_debugger.explain --enhanced debugger_output.json`
 
 ### Individual steps
 
 ```python
-from pipeline import run_diagnosis, run_fix
+from agent_failure_debugger.pipeline import run_diagnosis, run_fix
 
 diag = run_diagnosis(matcher_output)
 fix_result = run_fix(diag, use_learning=True, top_k=2)
@@ -315,10 +313,10 @@ matcher_output.json
 
 ## Graph Source
 
-The canonical `failure_graph.yaml` is in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas). The debugger loads the graph from Atlas as a sibling directory (or via the `ATLAS_ROOT` environment variable). There is no local copy.
+The canonical `failure_graph.yaml` is bundled in the `llm-failure-atlas` package. The debugger loads the graph automatically via the Atlas package.
 
 ```python
-from config import GRAPH_PATH
+from agent_failure_debugger.config import GRAPH_PATH
 print(GRAPH_PATH)  # shows which graph is loaded
 ```
 
@@ -328,9 +326,9 @@ print(GRAPH_PATH)  # shows which graph is loaded
 
 | Variable | Default | Description |
 |---|---|---|
-| `ATLAS_ROOT` | `../llm-failure-atlas` | Path to Atlas repository |
-| `DEBUGGER_ROOT` | `.` | Path to this repository |
-| `ATLAS_LEARNING_DIR` | `$ATLAS_ROOT/learning` | Learning store location |
+| `LLM_FAILURE_ATLAS_GRAPH_PATH` | Bundled in package | Override graph location |
+| `LLM_FAILURE_ATLAS_PATTERNS_DIR` | Bundled in package | Override patterns directory |
+| `LLM_FAILURE_ATLAS_LEARNING_DIR` | Bundled in package | Override learning store |
 
 All scoring weights and gate thresholds are in `config.py`.
 
@@ -364,7 +362,7 @@ All scoring weights and gate thresholds are in `config.py`.
 from langchain_core.language_models import FakeListLLM
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, MessagesState, START, END
-from adapters.callback_handler import watch
+from llm_failure_atlas.adapters.callback_handler import watch
 
 llm = FakeListLLM(responses=[
     "The revenue was $4.2M in Q3 2024, representing 31% year-over-year "
@@ -389,7 +387,7 @@ graph.invoke({"messages": [HumanMessage(content="What was Q3 revenue?")]})
 10 examples in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `examples/`. Each contains `log.json`, `matcher_output.json`, and `expected_debugger_output.json`.
 
 ```bash
-python main.py ../llm-failure-atlas/examples/simple/matcher_output.json
+python -m agent_failure_debugger.main matcher_output.json
 ```
 
 ---
