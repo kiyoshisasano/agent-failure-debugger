@@ -301,7 +301,7 @@ matcher_output.json
 | `graph_loader.py` | Load failure_graph.yaml |
 | `causal_resolver.py` | Normalize, find roots, build paths, rank |
 | `formatter.py` | Path scoring + conflict resolution |
-| `labels.py` | SIGNAL_MAP (30) + FAILURE_MAP (15) |
+| `labels.py` | SIGNAL_MAP (34) + FAILURE_MAP (17) |
 | `explainer.py` | Deterministic + optional LLM explanation |
 | `decision_support.py` | Failure to action mapping |
 | `autofix.py` | Fix selection + patch generation |
