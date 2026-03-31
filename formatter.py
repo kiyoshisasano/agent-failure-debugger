@@ -177,28 +177,55 @@ def build_explanation(result: dict, primary: list | None,
         for s in c["suppressed"]:
             suppressed_set.add(s)
 
+    total_failures = len(result.get("failures", []))
     lines = []
 
-    # Primary path narrative
-    primary_narrative = _narrate_path(primary, edge_map)
+    # Summary line: root cause → outcome, failure count
+    root = primary[0]
+    outcome = primary[-1]
+    if len(primary) >= 3:
+        lines.append(
+            f"Root cause: {root} (led to {outcome} "
+            f"via {len(primary) - 2} intermediate failure(s), "
+            f"{total_failures} total detected)"
+        )
+    else:
+        lines.append(
+            f"Root cause: {root} (led to {outcome}, "
+            f"{total_failures} total detected)"
+        )
+
+    # Primary path: full narrative for short chains, compressed for long
+    if len(primary) <= 4:
+        primary_narrative = _narrate_path(primary, edge_map)
+    else:
+        # Show first 2 and last 2 nodes with ellipsis
+        head = _narrate_path(primary[:2], edge_map)
+        tail = _narrate_path(primary[-2:], edge_map)
+        primary_narrative = (
+            f"{head}, ... ({len(primary) - 4} more), {tail}"
+        )
+
     if alternatives:
         lines.append(f"Primary causal path: {primary_narrative}")
     else:
-        lines.append(f"Causal path detected: {primary_narrative}")
+        lines.append(f"Causal path: {primary_narrative}")
 
-    # Alternative path narratives (annotated if suppressed)
-    for alt in alternatives:
-        alt_narrative = _narrate_path(alt, edge_map)
-        is_suppressed = any(node in suppressed_set for node in alt)
-        if is_suppressed:
-            lines.append(
-                f"Alternative competing path (lower confidence): "
-                f"{alt_narrative}"
-            )
-        else:
-            lines.append(
-                f"Alternative contributing path: {alt_narrative}"
-            )
+    # Alternative paths: count only, details in structured output
+    if alternatives:
+        suppressed_count = sum(
+            1 for alt in alternatives
+            if any(node in suppressed_set for node in alt)
+        )
+        contributing_count = len(alternatives) - suppressed_count
+        alt_parts = []
+        if contributing_count:
+            alt_parts.append(f"{contributing_count} contributing")
+        if suppressed_count:
+            alt_parts.append(f"{suppressed_count} competing (suppressed)")
+        lines.append(
+            f"Alternative paths: {', '.join(alt_parts)}"
+        )
 
     return "\n".join(lines)
 
