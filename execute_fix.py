@@ -232,7 +232,7 @@ def save_snapshot(patches: list[dict], snapshot_path: str = "snapshot.json"):
         "patches_applied": [p["target_failure"] for p in patches],
         "original_state": "captured_before_apply",
     }
-    with open(snapshot_path, "w") as f:
+    with open(snapshot_path, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, indent=2)
     return snapshot_path
 
@@ -257,7 +257,7 @@ def staged_apply(execution_plan: dict, output_dir: str = "patches"):
     for p in patches:
         fname = f"{p['order']:02d}_{p['target_failure']}.json"
         path = os.path.join(output_dir, fname)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(p, f, indent=2)
 
     # Write execution manifest
@@ -267,7 +267,7 @@ def staged_apply(execution_plan: dict, output_dir: str = "patches"):
         "snapshot": snapshot_path,
     }
     manifest_path = os.path.join(output_dir, "manifest.json")
-    with open(manifest_path, "w") as f:
+    with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
 
     return manifest
@@ -314,7 +314,7 @@ def main():
         if not os.path.exists(snapshot_path):
             print(f"No snapshot found at {snapshot_path}")
             sys.exit(1)
-        with open(snapshot_path) as f:
+        with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
         print("=== ROLLBACK ===")
         print(f"  Snapshot: {snapshot_path}")
@@ -323,7 +323,7 @@ def main():
         patches_dir = os.path.dirname(snapshot_path) or "patches"
         manifest_path = os.path.join(patches_dir, "manifest.json")
         if os.path.exists(manifest_path):
-            with open(manifest_path) as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
             for fid in manifest.get("order", []):
                 for fname in os.listdir(patches_dir):
@@ -339,7 +339,7 @@ def main():
 
     input_path = args[0] if args else "autofix.json"
 
-    with open(input_path) as f:
+    with open(input_path, encoding="utf-8") as f:
         autofix_output = json.load(f)
 
     plan = build_execution_plan(autofix_output)

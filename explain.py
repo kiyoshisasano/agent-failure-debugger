@@ -34,7 +34,7 @@ def main():
     enhanced = "--enhanced" in flags
     dry_run = "--dry-run" in flags
 
-    with open(input_path) as f:
+    with open(input_path, encoding="utf-8") as f:
         debugger_output = json.load(f)
 
     if dry_run:

@@ -405,7 +405,7 @@ def maybe_apply(gate_result: dict, debugger_output: dict,
         snapshot_path = os.path.join(patches_dir, "snapshot.json")
         manifest_path = os.path.join(patches_dir, "manifest.json")
         if os.path.exists(manifest_path):
-            with open(manifest_path) as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 m = json.load(f)
             for fid in m.get("order", []):
                 for fname in os.listdir(patches_dir):
@@ -439,9 +439,9 @@ def main():
         print("Usage: python auto_apply.py debugger_output.json autofix.json [--apply] [--json-only]")
         sys.exit(1)
 
-    with open(args[0]) as f:
+    with open(args[0], encoding="utf-8") as f:
         debugger_output = json.load(f)
-    with open(args[1]) as f:
+    with open(args[1], encoding="utf-8") as f:
         autofix_output = json.load(f)
 
     # Load policies if available

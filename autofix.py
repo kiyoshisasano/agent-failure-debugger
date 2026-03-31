@@ -202,7 +202,7 @@ def main():
         if flag == "--top-k" and i + 1 < len(flags):
             top_k = int(flags[i + 1])
 
-    with open(input_path) as f:
+    with open(input_path, encoding="utf-8") as f:
         debugger_output = json.load(f)
 
     policies = None

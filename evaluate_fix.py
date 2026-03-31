@@ -78,13 +78,17 @@ def _longest_path(paths: list[list[str]]) -> list[str] | None:
 def _summarize(data: dict) -> dict:
     failures = data.get("failures", [])
     primary = data.get("primary_path") or []
+    conflicts = data.get("conflicts", [])
+    roots = data.get("root_candidates", [])
+
     return {
         "failure_ids": [f["id"] for f in failures],
         "failure_count": len(failures),
-        "root_count": len(data.get("root_candidates", [])),
+        "root_candidates": roots,
+        "root_count": len(roots),
         "primary_path": primary,
         "primary_path_length": len(primary),
-        "conflict_count": len(data.get("conflicts", [])),
+        "conflict_count": len(conflicts),
     }
 
 
@@ -95,109 +99,89 @@ def _summarize(data: dict) -> dict:
 def simulate_after_state(before: dict, autofix_output: dict,
                          graph: dict) -> dict:
     """
-    Simulate the system state after fixes are applied.
-
-    Strategy:
-      1. Identify which failures the fixes target
-      2. Remove those failures AND their downstream descendants
-         (if a root is removed, its entire subtree is removed)
-      3. Recompute roots, paths, and conflicts for remaining failures
+    Deterministic counterfactual:
+    - Fix targets are assumed mitigated
+    - Descendants of fixed targets are also mitigated
+    - Remaining failures are preserved
     """
-    import copy
-    after = copy.deepcopy(before)
+    plan = build_execution_plan(autofix_output)
+    fixed_targets = [step["target_failure"]
+                     for step in plan.get("execution_plan", [])]
 
-    # Targeted failures
-    targeted = set()
-    for fix in autofix_output.get("recommended_fixes", []):
-        targeted.add(fix["target_failure"])
-
-    # Compute full removal set: targeted + their descendants
     removed = set()
-    for t in targeted:
-        removed.add(t)
-        removed |= _descendants(graph, t)
+    for fid in fixed_targets:
+        removed.add(fid)
+        removed |= _descendants(graph, fid)
 
-    # Only remove failures that are actually active
-    active_ids = _failure_ids(before)
-    actually_removed = removed & active_ids
+    after_failures = [f for f in before.get("failures", [])
+                      if f["id"] not in removed]
+    active_ids = {f["id"] for f in after_failures}
+    after_roots = _recompute_roots(graph, active_ids)
 
-    # Filter failures
-    after["failures"] = [
-        f for f in after.get("failures", [])
-        if f["id"] not in actually_removed
+    before_paths = before.get("causal_paths", [])
+    after_paths = _filter_paths(before_paths, removed)
+    after_primary = _longest_path(after_paths)
+
+    after_conflicts = [
+        c for c in before.get("conflicts", [])
+        if not ({c.get("winner", "")} | set(c.get("suppressed", []))) & removed
     ]
 
-    # Update root_candidates
-    remaining_ids = _failure_ids(after)
-    after["root_candidates"] = _recompute_roots(graph, remaining_ids)
-
-    # Update root_ranking (keep only remaining)
-    after["root_ranking"] = [
-        r for r in after.get("root_ranking", [])
-        if r["id"] in remaining_ids
+    after_root_ranking = [
+        r for r in before.get("root_ranking", []) if r["id"] in set(after_roots)
     ]
 
-    # Update causal_paths
-    old_paths = after.get("causal_paths", [])
-    after["causal_paths"] = _filter_paths(old_paths, actually_removed)
-
-    # Update primary_path
-    remaining_paths = after["causal_paths"]
-    after["primary_path"] = _longest_path(remaining_paths) or []
-
-    # Update alternative_paths
-    primary = after["primary_path"]
-    after["alternative_paths"] = [
-        p for p in remaining_paths if p != primary
+    after_evidence = [
+        e for e in before.get("evidence", []) if e["failure"] in active_ids
     ]
 
-    # Update causal_links
-    after["causal_links"] = [
-        link for link in after.get("causal_links", [])
-        if link["from"] not in actually_removed
-        and link["to"] not in actually_removed
-    ]
-
-    # Update conflicts (remove groups where members were removed)
-    new_conflicts = []
-    for c in after.get("conflicts", []):
-        if c.get("winner") in actually_removed:
-            continue
-        remaining_suppressed = [
-            s for s in c.get("suppressed", [])
-            if s not in actually_removed
-        ]
-        if remaining_suppressed:
-            new_conflicts.append({
-                **c,
-                "suppressed": remaining_suppressed,
-            })
-    after["conflicts"] = new_conflicts
-
-    return after
+    return {
+        "root_candidates": after_roots,
+        "root_ranking": after_root_ranking,
+        "failures": after_failures,
+        "causal_links": before.get("causal_links", []),
+        "causal_paths": after_paths,
+        "primary_path": after_primary,
+        "alternative_paths": (
+            [p for p in after_paths if p != after_primary]
+            if after_primary else []
+        ),
+        "conflicts": after_conflicts,
+        "evidence": after_evidence,
+        "explanation": (
+            f"Predicted mitigation removes failures: {sorted(removed)}. "
+            f"Remaining active failures: {sorted(active_ids)}."
+        ),
+        "_phase18_meta": {
+            "fixed_targets": fixed_targets,
+            "removed_failures": sorted(removed),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
-# Delta computation
+# Delta metrics
 # ---------------------------------------------------------------------------
 
 def compute_delta(before: dict, after: dict) -> dict:
-    """Compute the difference between before and after states."""
-    b = _summarize(before)
-    a = _summarize(after)
+    before_summary = _summarize(before)
+    after_summary = _summarize(after)
 
-    mitigated = set(b["failure_ids"]) - set(a["failure_ids"])
-    remaining = set(a["failure_ids"])
-    new_failures = set(a["failure_ids"]) - set(b["failure_ids"])
+    before_ids = _failure_ids(before)
+    after_ids = _failure_ids(after)
 
     return {
-        "failure_count_delta": a["failure_count"] - b["failure_count"],
-        "root_count_delta": a["root_count"] - b["root_count"],
-        "primary_path_length_delta": a["primary_path_length"] - b["primary_path_length"],
-        "conflict_count_delta": a["conflict_count"] - b["conflict_count"],
-        "mitigated_failures": sorted(mitigated),
-        "remaining_failures": sorted(remaining),
-        "new_failures": sorted(new_failures),
+        "failure_count_delta":
+            after_summary["failure_count"] - before_summary["failure_count"],
+        "root_count_delta":
+            after_summary["root_count"] - before_summary["root_count"],
+        "primary_path_length_delta":
+            after_summary["primary_path_length"] - before_summary["primary_path_length"],
+        "conflict_count_delta":
+            after_summary["conflict_count"] - before_summary["conflict_count"],
+        "mitigated_failures": sorted(before_ids - after_ids),
+        "remaining_failures": sorted(after_ids),
+        "new_failures": sorted(after_ids - before_ids),
     }
 
 
@@ -236,14 +220,23 @@ def detect_regressions(before: dict, after: dict, delta: dict) -> list[dict]:
             "detail": f"Conflict count increased by {delta['conflict_count_delta']}",
         })
 
-    # Check if root was mitigated
-    b_roots = set(before.get("root_candidates", []))
-    a_roots = set(after.get("root_candidates", []))
-    if b_roots and b_roots == a_roots and delta["failure_count_delta"] == 0:
+    fixed_targets = set(
+        after.get("_phase18_meta", {}).get("fixed_targets", []))
+    before_roots = set(before.get("root_candidates", []))
+    after_roots = set(after.get("root_candidates", []))
+    targeted_roots = before_roots & fixed_targets
+    if targeted_roots and targeted_roots <= after_roots:
+        regressions.append({
+            "type": "root_not_mitigated",
+            "severity": "hard",
+            "detail": f"Targeted root(s) still active: {sorted(targeted_roots)}",
+        })
+
+    if not regressions and len(delta["mitigated_failures"]) == 0:
         regressions.append({
             "type": "no_effect",
             "severity": "soft",
-            "detail": "Fix had no observable effect on failure state",
+            "detail": "No failures were mitigated by the proposed fix set.",
         })
 
     return regressions
@@ -315,9 +308,9 @@ def main():
         print("Usage: python evaluate_fix.py debugger_output.json autofix.json [--json-only]")
         sys.exit(1)
 
-    with open(args[0]) as f:
+    with open(args[0], encoding="utf-8") as f:
         before = json.load(f)
-    with open(args[1]) as f:
+    with open(args[1], encoding="utf-8") as f:
         autofix_output = json.load(f)
 
     graph = load_graph(str(GRAPH_PATH))
