@@ -48,6 +48,14 @@ FAILURE_MAP = {
     "incorrect_output":
         "the system produced output misaligned with user intent, requiring correction",
 
+    # --- Termination failures ---
+
+    "premature_termination":
+        "the agent terminated without producing output and without raising an error",
+
+    "failed_termination":
+        "the agent terminated due to an execution error without producing output",
+
     # --- Meta failures (model limitations) ---
 
     "unmodeled_failure":
@@ -146,6 +154,22 @@ SIGNAL_MAP = {
 
     "grounding_gap_not_acknowledged":
         "tools returned no usable data and the agent did not acknowledge the gap",
+
+    # --- Termination signals ---
+
+    # premature_termination
+    "silent_exit_without_output":
+        "agent completed execution without producing output and without error",
+
+    "tools_called_but_no_output":
+        "agent called tools but produced no final output",
+
+    # failed_termination
+    "execution_error_caused_termination":
+        "agent execution ended with an error",
+
+    "error_without_output":
+        "agent encountered an error and produced no output",
 
     # --- Meta signals (model limitation indicators) ---
 
