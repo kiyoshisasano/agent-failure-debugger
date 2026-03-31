@@ -21,15 +21,15 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Clone llm-failure-atlas (for examples + graph)
+      - name: Install llm-failure-atlas
         run: |
           cd ..
           git clone https://github.com/kiyoshisasano/llm-failure-atlas.git
           cd llm-failure-atlas
-          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Install agent-failure-debugger
+        run: pip install -e .
 
       - name: Regression test (10 examples)
         run: |
@@ -40,7 +40,7 @@ jobs:
             mf="$dir/matcher_output.json"
             ef="$dir/expected_debugger_output.json"
             [ -f "$mf" ] && [ -f "$ef" ] || continue
-            python main.py "$mf" > /tmp/actual.json 2>&1
+            python -m agent_failure_debugger.main "$mf" > /tmp/actual.json 2>&1
             python -c "
           import json, sys
           with open('/tmp/actual.json') as f: actual = json.load(f)
@@ -64,27 +64,42 @@ jobs:
 
       - name: Pipeline test
         run: |
-          python pipeline.py ../llm-failure-atlas/examples/simple/matcher_output.json --use-learning 2>&1 | tee /tmp/pipeline_out.txt
-          grep -q "Root cause:" /tmp/pipeline_out.txt || (echo "FAIL: pipeline did not produce root cause" && exit 1)
-          echo "OK: pipeline test passed"
+          python -c "
+          import json
+          from agent_failure_debugger.pipeline import run_pipeline
+
+          with open('../llm-failure-atlas/examples/simple/matcher_output.json') as f:
+              matcher_output = json.load(f)
+          if isinstance(matcher_output, dict):
+              matcher_output = [matcher_output]
+
+          result = run_pipeline(matcher_output, use_learning=True)
+          s = result['summary']
+          print(f'Root cause: {s[\"root_cause\"]}')
+          print(f'Fixes: {s[\"fix_count\"]}')
+          assert s.get('root_cause'), 'Pipeline did not produce root cause'
+          print('OK: pipeline test passed')
+          "
 
       - name: Labels coverage check
         run: |
           python -c "
           import yaml
           from pathlib import Path
-          from labels import FAILURE_MAP, SIGNAL_MAP
-          # Check FAILURE_MAP covers all graph nodes (using atlas graph)
-          g = yaml.safe_load(open('../llm-failure-atlas/failure_graph.yaml', encoding='utf-8'))
+          from agent_failure_debugger.labels import FAILURE_MAP, SIGNAL_MAP
+          from llm_failure_atlas.resource_loader import get_graph_path, get_patterns_dir
+
+          # Check FAILURE_MAP covers all graph nodes
+          g = yaml.safe_load(open(str(get_graph_path()), encoding='utf-8'))
           missing_failures = [n['id'] for n in g['nodes'] if n['id'] not in FAILURE_MAP]
           if missing_failures:
               print(f'FAIL: missing from FAILURE_MAP: {missing_failures}')
               exit(1)
           print(f'OK: FAILURE_MAP covers all {len(g[\"nodes\"])} nodes')
-          # Check SIGNAL_MAP covers all signals defined in Atlas YAMLs
-          atlas_dir = Path('../llm-failure-atlas/failures')
+
+          # Check SIGNAL_MAP covers all signals
           signals_in_yaml = set()
-          for f in sorted(atlas_dir.glob('*.yaml')):
+          for f in sorted(Path(get_patterns_dir()).glob('*.yaml')):
               p = yaml.safe_load(f.read_text(encoding='utf-8'))
               for rule in p.get('signal_extraction', {}).get('rules', []):
                   signals_in_yaml.add(rule['signal'])
