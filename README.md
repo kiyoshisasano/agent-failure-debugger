@@ -47,7 +47,7 @@ print(result["explanation"]["context_summary"])
 # → describes what happened and why
 ```
 
-`raw_log` is a loosely structured dict — its format depends on the source. The adapter normalizes it into the telemetry format Atlas expects.
+`raw_log` is a loosely structured dict — its format depends on the source. The adapter normalizes it into the telemetry format Atlas expects. The more structured and complete the log (especially tool calls and outputs), the more accurate the diagnosis. Minimal logs may result in incomplete or degraded analysis.
 
 One function: adapt → detect → diagnose → explain. Requires [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) cloned at the same directory level (sibling directory).
 
@@ -250,6 +250,24 @@ Hard blockers (force proposal_only regardless of score):
 - `fix_type == "workflow_patch"`
 - Execution plan has conflicts or failed validation
 - `grounding_gap_not_acknowledged` signal active
+
+## Fix Safety
+
+Fixes are generated from predefined templates, not learned behavior. They are deterministic and reproducible, but not guaranteed to be correct — some fixes may introduce regressions in complex workflows.
+
+Safety mechanisms: the confidence gate prevents low-evidence fixes from auto-apply, hard blockers prevent unsafe categories of changes, the evaluation runner validates fixes before acceptance, and rollback is triggered automatically if evaluation fails.
+
+Always review or evaluate fixes before applying in production environments.
+
+## Automation Guidance
+
+| Environment | Recommended mode | Notes |
+|---|---|---|
+| Development | `auto_apply` | Iterate quickly, evaluate fixes automatically |
+| Staging | `staged_review` | Use evaluation_runner to validate before applying |
+| Production | `proposal_only` | Human approval required, avoid auto_apply |
+
+The debugger is designed for assisted decision-making, not fully autonomous system modification.
 
 ---
 
