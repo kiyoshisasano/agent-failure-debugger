@@ -17,7 +17,7 @@ Modes:
 import json
 import sys
 
-from explainer import (
+from agent_failure_debugger.explainer import (
     build_explanation_package,
     build_prompt,
     render_draft,

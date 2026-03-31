@@ -3,59 +3,35 @@ config.py
 
 Centralized configuration for agent-failure-debugger.
 
-All paths and settings in one place. Reads from environment
-variables with sensible defaults for local development.
+All paths and settings in one place. Uses llm-failure-atlas package
+for graph and learning resources.
 
 Environment variables:
-  ATLAS_ROOT          Path to llm-failure-atlas repository
-  DEBUGGER_ROOT       Path to agent-failure-debugger repository (this repo)
-  ATLAS_LEARNING_DIR  Override learning store location
-  ATLAS_VALIDATION_DIR Override validation data location
+  LLM_FAILURE_ATLAS_GRAPH_PATH    Override graph location
+  LLM_FAILURE_ATLAS_LEARNING_DIR  Override learning store location
 """
 
 import os
 from pathlib import Path
 
+from llm_failure_atlas.resource_loader import get_graph_path, get_learning_dir
+
 # ---------------------------------------------------------------------------
 # Repository roots
 # ---------------------------------------------------------------------------
 
-DEBUGGER_ROOT = Path(os.environ.get(
-    "DEBUGGER_ROOT",
-    Path(__file__).parent
-))
-
-ATLAS_ROOT = Path(os.environ.get(
-    "ATLAS_ROOT",
-    DEBUGGER_ROOT.parent / "llm-failure-atlas"
-))
+DEBUGGER_ROOT = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
 # Key paths
 # ---------------------------------------------------------------------------
 
-# Debugger
-# Graph: canonical source is Atlas (single source of truth).
-GRAPH_PATH = ATLAS_ROOT / "failure_graph.yaml"
+# Graph: loaded from atlas package (single source of truth)
+GRAPH_PATH = get_graph_path()
 TEMPLATES_DIR = DEBUGGER_ROOT / "templates"
 
-# Atlas — learning stores
-LEARNING_DIR = Path(os.environ.get(
-    "ATLAS_LEARNING_DIR",
-    ATLAS_ROOT / "learning"
-))
-
-# Atlas — validation
-VALIDATION_DIR = Path(os.environ.get(
-    "ATLAS_VALIDATION_DIR",
-    ATLAS_ROOT / "validation"
-))
-
-# Atlas — examples
-EXAMPLES_DIR = ATLAS_ROOT / "examples"
-
-# Atlas — evaluation
-EVALUATION_DIR = ATLAS_ROOT / "evaluation"
+# Learning stores — from atlas package resources
+LEARNING_DIR = get_learning_dir()
 
 # Runtime output
 PATCHES_DIR = DEBUGGER_ROOT / "patches"

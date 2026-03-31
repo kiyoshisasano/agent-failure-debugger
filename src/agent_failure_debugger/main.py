@@ -13,16 +13,12 @@ Defaults:
 import json
 import sys
 
-from graph_loader import load_graph
-from causal_resolver import resolve
-from formatter import format_output
+from agent_failure_debugger.graph_loader import load_graph
+from agent_failure_debugger.causal_resolver import resolve
+from agent_failure_debugger.formatter import format_output
+from agent_failure_debugger.config import GRAPH_PATH
 
-try:
-    from config import GRAPH_PATH
-    _default_graph = str(GRAPH_PATH)
-except ImportError:
-    from pathlib import Path
-    _default_graph = str(Path(__file__).parent.parent / "llm-failure-atlas" / "failure_graph.yaml")
+_default_graph = str(GRAPH_PATH)
 
 
 def main():

@@ -15,7 +15,7 @@ Phase 20 additions:
   ⑥ threshold_suggestions in output (display only)
 """
 
-from labels import FAILURE_MAP
+from agent_failure_debugger.labels import FAILURE_MAP
 
 # ---------------------------------------------------------------------------
 # Action Map

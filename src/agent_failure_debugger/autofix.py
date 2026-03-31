@@ -21,8 +21,8 @@ Phase 20 additions:
 import json
 import sys
 
-from fix_templates import AUTOFIX_MAP
-from decision_support import decide
+from agent_failure_debugger.fix_templates import AUTOFIX_MAP
+from agent_failure_debugger.decision_support import decide
 
 
 def _select_fix_candidates(decision_output: dict,

@@ -18,7 +18,7 @@ import json
 import os
 from pathlib import Path
 
-from labels import FAILURE_MAP, SIGNAL_MAP
+from agent_failure_debugger.labels import FAILURE_MAP, SIGNAL_MAP
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 

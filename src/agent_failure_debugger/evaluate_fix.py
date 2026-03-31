@@ -18,16 +18,9 @@ import json
 import sys
 from pathlib import Path
 
-from execute_fix import build_execution_plan
-from graph_loader import load_graph
-
-
-DEBUGGER_DIR = Path(__file__).parent
-
-try:
-    from config import GRAPH_PATH
-except ImportError:
-    GRAPH_PATH = DEBUGGER_DIR.parent / "llm-failure-atlas" / "failure_graph.yaml"
+from agent_failure_debugger.execute_fix import build_execution_plan
+from agent_failure_debugger.graph_loader import load_graph
+from agent_failure_debugger.config import GRAPH_PATH
 
 
 # ---------------------------------------------------------------------------

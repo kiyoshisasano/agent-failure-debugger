@@ -22,7 +22,7 @@ GPT review fixes applied:
   ⑤ brief mode: includes representative failure name
 """
 
-from labels import FAILURE_MAP
+from agent_failure_debugger.labels import FAILURE_MAP
 
 # ---------------------------------------------------------------------------
 # Failure clusters

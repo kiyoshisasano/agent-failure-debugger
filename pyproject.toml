@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-failure-debugger"
+version = "0.1.0"
+description = "Diagnose why your LLM agent failed. Deterministic causal analysis with fix generation."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "llm-failure-atlas>=0.1.0",
+]
+
+[project.optional-dependencies]
+langchain = ["langchain-core>=0.3,<1.0"]
+langsmith = ["langsmith>=0.1"]
+crewai = ["crewai>=0.50"]
+all = ["agent-failure-debugger[langchain,langsmith,crewai]"]
+
+[project.urls]
+Homepage = "https://github.com/kiyoshisasano/agent-failure-debugger"
+
+[project.scripts]
+agent-failure-debugger = "agent_failure_debugger.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"agent_failure_debugger" = ["templates/*.txt"]

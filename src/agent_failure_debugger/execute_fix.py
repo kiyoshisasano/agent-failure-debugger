@@ -20,7 +20,7 @@ import os
 import sys
 from pathlib import Path
 
-from fix_templates import AUTOFIX_MAP
+from agent_failure_debugger.fix_templates import AUTOFIX_MAP
 
 
 # ---------------------------------------------------------------------------

@@ -19,12 +19,10 @@ Design rules:
 import json
 import os
 
-# Default: sibling repo layout  ../llm-failure-atlas/learning/
-# Override with ATLAS_LEARNING_DIR env var if needed
-LEARNING_DIR = os.environ.get(
-    "ATLAS_LEARNING_DIR",
-    os.path.join(os.path.dirname(__file__), "..", "llm-failure-atlas", "learning")
-)
+from llm_failure_atlas.resource_loader import get_learning_dir
+
+# Learning stores from atlas package resources
+LEARNING_DIR = str(get_learning_dir())
 
 
 def _load_json(filename: str) -> dict:

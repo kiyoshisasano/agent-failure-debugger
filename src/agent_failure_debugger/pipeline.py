@@ -23,34 +23,30 @@ import json
 import sys
 from pathlib import Path
 
-from graph_loader import load_graph
-from causal_resolver import resolve
-from formatter import format_output
-from decision_support import decide
-from autofix import generate_autofix
-from execute_fix import build_execution_plan
-from auto_apply import gate_autofix
-from abstraction import abstract
-from explainer import explain as run_explanation
-from pipeline_post_apply import run_post_apply
-from pipeline_summary import build_pipeline_summary
+from agent_failure_debugger.graph_loader import load_graph
+from agent_failure_debugger.causal_resolver import resolve
+from agent_failure_debugger.formatter import format_output
+from agent_failure_debugger.decision_support import decide
+from agent_failure_debugger.autofix import generate_autofix
+from agent_failure_debugger.execute_fix import build_execution_plan
+from agent_failure_debugger.auto_apply import gate_autofix
+from agent_failure_debugger.abstraction import abstract
+from agent_failure_debugger.explainer import explain as run_explanation
+from agent_failure_debugger.pipeline_post_apply import run_post_apply
+from agent_failure_debugger.pipeline_summary import build_pipeline_summary
 
 
 # ---------------------------------------------------------------------------
-# Paths (use config if available, fallback to local)
+# Paths
 # ---------------------------------------------------------------------------
 
-try:
-    from config import GRAPH_PATH, LEARNING_DIR
-except ImportError:
-    GRAPH_PATH = Path(__file__).parent.parent / "llm-failure-atlas" / "failure_graph.yaml"
-    LEARNING_DIR = Path(__file__).parent.parent / "llm-failure-atlas" / "learning"
+from agent_failure_debugger.config import GRAPH_PATH, LEARNING_DIR
 
 
 def _load_policies():
     """Load learning policies if available."""
     try:
-        from policy_loader import load_policies
+        from agent_failure_debugger.policy_loader import load_policies
         return load_policies()
     except (ImportError, Exception):
         return None
