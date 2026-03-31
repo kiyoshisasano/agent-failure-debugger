@@ -287,7 +287,7 @@ matcher_output.json
 | `explainer.py` | Deterministic + optional LLM explanation |
 | `decision_support.py` | Failure to action mapping |
 | `autofix.py` | Fix selection + patch generation |
-| `fix_templates.py` | 15 fix definitions (12 domain + 3 meta) |
+| `fix_templates.py` | 17 fix definitions (14 domain + 3 meta) |
 | `auto_apply.py` | Confidence gate + auto-apply |
 | `execute_fix.py` | Dependency ordering + staged apply |
 | `evaluate_fix.py` | Counterfactual simulation |

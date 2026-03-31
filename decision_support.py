@@ -107,6 +107,23 @@ ACTION_MAP = {
         "expected_effect": "Catches misaligned output before delivery to user",
     },
 
+    # --- Termination failures ---
+
+    "premature_termination": {
+        "action": "Add termination guard with output verification",
+        "detail": "Ensure the agent produces a response before exiting; add fallback output on silent exit",
+        "type": "control_logic",
+        "timeline": "immediate",
+        "expected_effect": "Prevents silent agent exits that leave the user without a response",
+    },
+    "failed_termination": {
+        "action": "Add error recovery with graceful degradation",
+        "detail": "Catch execution errors and produce a diagnostic response instead of failing silently",
+        "type": "control_logic",
+        "timeline": "immediate",
+        "expected_effect": "Converts hard failures into informative error responses",
+    },
+
     # --- Meta layer (model limitation indicators) ---
 
     "unmodeled_failure": {

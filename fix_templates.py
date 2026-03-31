@@ -158,6 +158,30 @@ AUTOFIX_MAP = {
         "safety": "high"
     },
 
+    # --- Termination failures ---
+
+    "premature_termination": {
+        "fix_type": "workflow_patch",
+        "target": "termination_guard",
+        "patch": {
+            "require_output_before_exit": True,
+            "fallback_response": "I was unable to complete your request.",
+            "log_silent_exits": True
+        },
+        "safety": "high"
+    },
+
+    "failed_termination": {
+        "fix_type": "workflow_patch",
+        "target": "error_handler",
+        "patch": {
+            "catch_chain_errors": True,
+            "produce_error_response": True,
+            "log_error_details": True
+        },
+        "safety": "high"
+    },
+
     # --- Meta layer (model limitations, not domain failures) ---
     # These fixes improve observability and escalation,
     # not the agent behavior itself.
