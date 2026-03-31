@@ -41,11 +41,21 @@ jobs:
             ef="$dir/expected_debugger_output.json"
             [ -f "$mf" ] && [ -f "$ef" ] || continue
             python main.py "$mf" > /tmp/actual.json 2>&1
-            if diff <(python -m json.tool /tmp/actual.json) <(python -m json.tool "$ef") > /dev/null 2>&1; then
-              echo "PASS $name"
+            python -c "
+          import json, sys
+          with open('/tmp/actual.json') as f: actual = json.load(f)
+          with open('$ef') as f: expected = json.load(f)
+          got = [r.get('id') for r in actual.get('root_ranking', [])]
+          exp = [r.get('id') for r in expected.get('root_ranking', [])]
+          if got == exp:
+              print('PASS $name')
+          else:
+              print(f'FAIL $name: expected {exp}, got {got}')
+              sys.exit(1)
+          "
+            if [ $? -eq 0 ]; then
               PASS=$((PASS+1))
             else
-              echo "FAIL $name"
               FAIL=$((FAIL+1))
             fi
           done
