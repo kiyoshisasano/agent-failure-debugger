@@ -43,7 +43,7 @@ from pipeline_summary import build_pipeline_summary
 try:
     from config import GRAPH_PATH, LEARNING_DIR
 except ImportError:
-    GRAPH_PATH = Path(__file__).parent / "failure_graph.yaml"
+    GRAPH_PATH = Path(__file__).parent.parent / "llm-failure-atlas" / "failure_graph.yaml"
     LEARNING_DIR = Path(__file__).parent.parent / "llm-failure-atlas" / "learning"
 
 

@@ -21,7 +21,8 @@ try:
     from config import GRAPH_PATH
     _default_graph = str(GRAPH_PATH)
 except ImportError:
-    _default_graph = "failure_graph.yaml"
+    from pathlib import Path
+    _default_graph = str(Path(__file__).parent.parent / "llm-failure-atlas" / "failure_graph.yaml")
 
 
 def main():

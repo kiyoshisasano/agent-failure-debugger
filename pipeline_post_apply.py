@@ -11,6 +11,12 @@ Logic is identical — no behavioral changes.
 from graph_loader import load_graph
 from auto_apply import maybe_apply
 
+try:
+    from config import GRAPH_PATH
+except ImportError:
+    from pathlib import Path
+    GRAPH_PATH = Path(__file__).parent.parent / "llm-failure-atlas" / "failure_graph.yaml"
+
 
 def _decision_from_runner_result(runner_result: dict) -> str:
     """Map runner result to evaluation decision."""
@@ -86,7 +92,7 @@ def run_post_apply(diagnosis: dict, fix_result: dict,
             }
     else:
         # Built-in counterfactual evaluation
-        graph = load_graph(graph_path) if graph_path else load_graph("failure_graph.yaml")
+        graph = load_graph(graph_path) if graph_path else load_graph(str(GRAPH_PATH))
         apply_result = maybe_apply(
             fix_result["gate"], diagnosis, fix_result["autofix"],
             fix_result["execution_plan"], graph

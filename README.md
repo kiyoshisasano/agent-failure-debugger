@@ -315,7 +315,7 @@ matcher_output.json
 
 ## Graph Source
 
-The canonical `failure_graph.yaml` is in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas). When the Atlas repository is available as a sibling directory (or `ATLAS_ROOT` is set), the debugger loads the graph from Atlas directly. The local copy is a fallback.
+The canonical `failure_graph.yaml` is in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas). The debugger loads the graph from Atlas as a sibling directory (or via the `ATLAS_ROOT` environment variable). There is no local copy.
 
 ```python
 from config import GRAPH_PATH

@@ -37,7 +37,11 @@ from graph_loader import load_graph
 
 
 DEBUGGER_DIR = Path(__file__).parent
-GRAPH_PATH = DEBUGGER_DIR / "failure_graph.yaml"
+
+try:
+    from config import GRAPH_PATH
+except ImportError:
+    GRAPH_PATH = DEBUGGER_DIR.parent / "llm-failure-atlas" / "failure_graph.yaml"
 
 
 # ---------------------------------------------------------------------------
