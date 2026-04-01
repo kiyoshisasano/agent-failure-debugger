@@ -56,7 +56,7 @@ print(result["explanation"]["context_summary"])
 
 `raw_log` is a loosely structured dict — its format depends on the source. The adapter normalizes it into the telemetry format Atlas expects. The more structured and complete the log (especially tool calls and outputs), the more accurate the diagnosis. Minimal logs may result in incomplete or degraded analysis.
 
-One function: adapt → detect → diagnose → explain. Atlas is installed automatically as a dependency.
+One function: adapt → detect → diagnose → explain. Atlas is installed automatically as a dependency. Output quality depends entirely on the input log — incomplete telemetry will silently degrade detection and diagnosis.
 
 
 
@@ -144,6 +144,53 @@ Output:
   Gate:        auto_apply (score: 0.9218)
   Applied:     no
 ```
+
+---
+
+## Minimal Working Example
+
+```python
+from agent_failure_debugger import diagnose
+
+raw_log = {
+    "inputs": {"query": "Change my flight to tomorrow morning"},
+    "outputs": {"response": "I've found several hotels near the airport for you."},
+    "steps": [
+        {"type": "llm", "outputs": {"text": "Let me check available flights."}},
+        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
+         "outputs": {"flights": []}, "error": None},
+        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
+         "outputs": {"flights": []}, "error": None},
+        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
+         "outputs": {"flights": []}, "error": None},
+        {"type": "llm", "outputs": {"text": "I've found several hotels near the airport."}}
+    ],
+    "feedback": {"user_correction": "I asked about flights, not hotels."}
+}
+
+result = diagnose(raw_log, adapter="langchain")
+print(result["summary"]["root_cause"])
+```
+
+See [Quick Start Guide](docs/quickstart.md) for more usage patterns including `watch()` and direct telemetry.
+
+## Common Mistakes
+
+| Problem | Cause | Fix |
+|---|---|---|
+| "0 failures detected" | Adapter got insufficient data | Provide complete trace with tool calls |
+| Wrong results | Input format doesn't match adapter | See [Adapter Formats](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/adapter_formats.md) |
+| Pattern doesn't fire | Adapter doesn't produce required fields | Check [Adapter Coverage](docs/limitations_faq.md#adapter-coverage) |
+
+**⚠ No error is raised for wrong inputs.** The system silently returns zero failures if the adapter cannot extract signals.
+
+## This Tool Cannot
+
+- Verify factual correctness of agent responses
+- Detect semantic mismatch (requires embeddings)
+- Analyze multi-agent system coordination
+
+See [Limitations & FAQ](docs/limitations_faq.md) for details.
 
 ---
 
