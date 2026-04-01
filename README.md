@@ -1,6 +1,13 @@
 # agent-failure-debugger
 
+[![PyPI version](https://badge.fury.io/py/agent-failure-debugger.svg)](https://pypi.org/project/agent-failure-debugger/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://pypi.org/project/agent-failure-debugger/)
+
 Diagnoses *why* your LLM agent failed, not just *what* failed. Deterministic causal analysis with fix generation.
+
+```bash
+pip install agent-failure-debugger
+```
 
 ```python
 from agent_failure_debugger import diagnose
