@@ -27,7 +27,7 @@ Use this when:
 
 Choose your entry point:
 
-- **During development** — use Atlas [`watch()`](https://pypi.org/project/llm-failure-atlas/) to observe live executions and diagnose behavior as it happens
+- **During development** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to observe live executions and diagnose behavior as it happens
 - **After failures** — use `diagnose()` to analyze a raw log or exported trace after the fact
 
 Atlas detects failures; the debugger explains why they happened and proposes fixes. You can use Atlas alone for detection, but diagnosis requires the debugger.
@@ -78,7 +78,11 @@ Note: `crewai` and `redis_help_demo` adapters do not yet produce `state` or `gro
 **CLI:**
 
 ```bash
+# From a raw log (full pipeline)
 python -m agent_failure_debugger.diagnose log.json --adapter langchain
+
+# From matcher output (diagnosis only)
+python -m agent_failure_debugger.main matcher_output.json
 ```
 
 ### From matcher output (direct)
@@ -103,7 +107,7 @@ Use this when you already have matcher output, or when building a custom adapter
 
 Atlas's `watch()` wraps a LangGraph agent and runs the debugger pipeline on completion. It is a separate entry point from `diagnose()` — both produce the same pipeline output but from different starting points: `watch()` captures telemetry from a live execution, while `diagnose()` accepts a raw log after the fact.
 
-If you use [llm-failure-atlas](https://pypi.org/project/llm-failure-atlas/) for detection, `watch()` runs the debugger automatically:
+If you use [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) for detection, `watch()` runs the debugger automatically:
 
 ```python
 from llm_failure_atlas.adapters.callback_handler import watch
@@ -335,13 +339,14 @@ matcher_output.json
 | `pipeline.py` | Pipeline orchestrator (from matcher output) |
 | `pipeline_post_apply.py` | Post-apply evaluation (runner + counterfactual) |
 | `pipeline_summary.py` | Summary generation |
-| `main.py` | CLI entry point (diagnosis only) |
+| `main.py` | CLI entry point for diagnosis only (from matcher output) |
 | `config.py` | Paths, weights, thresholds |
 | `graph_loader.py` | Load failure_graph.yaml |
 | `causal_resolver.py` | Normalize, find roots, build paths, rank |
 | `formatter.py` | Path scoring + conflict resolution |
 | `labels.py` | SIGNAL_MAP (34) + FAILURE_MAP (17) |
 | `explainer.py` | Deterministic + optional LLM explanation |
+| `explain.py` | CLI for explanation generation (`--enhanced`, `--deterministic`) |
 | `decision_support.py` | Failure to action mapping |
 | `autofix.py` | Fix selection + patch generation |
 | `fix_templates.py` | 17 fix definitions (14 domain + 3 meta) |
@@ -398,6 +403,10 @@ All scoring weights and gate thresholds are in `config.py`.
 ## Reproducible Examples
 
 **Try without an API key** (copy-paste-run):
+
+```bash
+pip install agent-failure-debugger[langchain] langgraph
+```
 
 ```python
 from langchain_core.language_models import FakeListLLM
