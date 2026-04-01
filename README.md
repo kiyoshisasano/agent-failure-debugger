@@ -69,7 +69,7 @@ Adapters normalize raw logs from different sources into Atlas's telemetry format
 | `langchain` | LangChain / LangGraph traces |
 | `langsmith` | LangSmith run-tree exports |
 | `crewai` | CrewAI crew execution logs |
-| `redis_help_demo` | [Redis workshop](https://github.com/redis-developer/movie-recommender-rag-semantic-cache-workshop) Help Center |
+| `redis_help_demo` | [Redis workshop](https://github.com/bhavana-giri/movie-recommender-rag-semantic-cache-workshop) Help Center |
 
 If unsure: use `"langchain"` for agent traces, `"redis_help_demo"` for the Redis workshop demo. For the JSON format each adapter expects, see [Adapter Formats](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/adapter_formats.md).
 
