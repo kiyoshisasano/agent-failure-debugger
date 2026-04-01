@@ -27,7 +27,7 @@ Use this when:
 
 Choose your entry point:
 
-- **During development** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to observe live executions and diagnose behavior as it happens
+- **During development** — use Atlas [`watch()`](https://pypi.org/project/llm-failure-atlas/) to observe live executions and diagnose behavior as it happens
 - **After failures** — use `diagnose()` to analyze a raw log or exported trace after the fact
 
 Atlas detects failures; the debugger explains why they happened and proposes fixes. You can use Atlas alone for detection, but diagnosis requires the debugger.
@@ -103,7 +103,7 @@ Use this when you already have matcher output, or when building a custom adapter
 
 Atlas's `watch()` wraps a LangGraph agent and runs the debugger pipeline on completion. It is a separate entry point from `diagnose()` — both produce the same pipeline output but from different starting points: `watch()` captures telemetry from a live execution, while `diagnose()` accepts a raw log after the fact.
 
-If you use [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) for detection, `watch()` runs the debugger automatically:
+If you use [llm-failure-atlas](https://pypi.org/project/llm-failure-atlas/) for detection, `watch()` runs the debugger automatically:
 
 ```python
 from llm_failure_atlas.adapters.callback_handler import watch
