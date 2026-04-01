@@ -56,7 +56,7 @@ print(result["explanation"]["context_summary"])
 
 `raw_log` is a loosely structured dict — its format depends on the source. The adapter normalizes it into the telemetry format Atlas expects. The more structured and complete the log (especially tool calls and outputs), the more accurate the diagnosis. Minimal logs may result in incomplete or degraded analysis.
 
-One function: adapt → detect → diagnose → explain. Atlas is installed automatically as a dependency. Output quality depends entirely on the input log — incomplete telemetry will silently degrade detection and diagnosis.
+One function: adapt → detect (via Atlas) → diagnose → explain. Atlas is installed automatically as a dependency. Output quality depends entirely on the input log — incomplete telemetry will silently degrade detection and diagnosis.
 
 
 
@@ -71,7 +71,7 @@ Adapters normalize raw logs from different sources into Atlas's telemetry format
 | `crewai` | CrewAI crew execution logs |
 | `redis_help_demo` | [Redis workshop](https://github.com/redis-developer/movie-recommender-rag-semantic-cache-workshop) Help Center |
 
-If unsure: use `"langchain"` for agent traces, `"redis_help_demo"` for the Redis workshop demo.
+If unsure: use `"langchain"` for agent traces, `"redis_help_demo"` for the Redis workshop demo. For the JSON format each adapter expects, see [Adapter Formats](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/adapter_formats.md).
 
 Note: `crewai` and `redis_help_demo` adapters do not yet produce `state` or `grounding` telemetry. Some failure patterns (e.g., `agent_tool_call_loop`) may not fire through these adapters. See the [Atlas adapter verification status](https://github.com/kiyoshisasano/llm-failure-atlas#tested-with-real-agents) for details.
 
@@ -119,35 +119,11 @@ For a copy-paste example without an API key, see [Reproducible Examples](#reprod
 
 ## Quick Start
 
-To run the full pipeline with real matcher output:
-
 ```bash
 pip install agent-failure-debugger
-
-# Run with sample data (Python)
-python -c "
-from agent_failure_debugger.pipeline import run_pipeline
-import json
-# Use your own matcher_output.json
-result = run_pipeline(matcher_output, use_learning=True)
-print(result['summary'])
-"
 ```
 
-Output:
-
-```
-=== PIPELINE RESULT ===
-  Root cause:  premature_model_commitment (confidence: 0.85)
-  Failures:    3
-  Fixes:       1
-  Gate:        auto_apply (score: 0.9218)
-  Applied:     no
-```
-
----
-
-## Minimal Working Example
+### From Python (copy-paste-run)
 
 ```python
 from agent_failure_debugger import diagnose
@@ -170,6 +146,17 @@ raw_log = {
 
 result = diagnose(raw_log, adapter="langchain")
 print(result["summary"]["root_cause"])
+```
+
+### From matcher output (advanced)
+
+If you already have matcher output (e.g., from a custom integration):
+
+```python
+from agent_failure_debugger.pipeline import run_pipeline
+
+result = run_pipeline(matcher_output, use_learning=True)
+print(result["summary"])
 ```
 
 See [Quick Start Guide](docs/quickstart.md) for more usage patterns including `watch()` and direct telemetry.
