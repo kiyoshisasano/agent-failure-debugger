@@ -256,8 +256,17 @@ def run_pipeline(matcher_output: list[dict],
         graph_path=str(GRAPH_PATH),
     )
 
-    # Step 4: Summary
-    summary = build_pipeline_summary(diagnosis, fix_result)
+    # Step 4: Summary (with execution quality assessment)
+    # Extract telemetry from diagnosis_context if available
+    telemetry = None
+    if diagnosis_context is not None:
+        telemetry = diagnosis_context.get("observed")
+
+    summary = build_pipeline_summary(
+        diagnosis, fix_result,
+        telemetry=telemetry,
+        diagnosis_context=diagnosis_context,
+    )
 
     result = {
         "diagnosis": diagnosis,
@@ -367,6 +376,9 @@ def main():
                 print(f"  Rollback:    yes")
         else:
             print(f"  Applied:     no")
+        eq = s.get("execution_quality", {})
+        if eq:
+            print(f"  Execution:   {eq.get('status', 'unknown')} ({eq.get('termination', {}).get('mode', 'unknown')})")
 
 
 if __name__ == "__main__":
