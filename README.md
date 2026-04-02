@@ -354,6 +354,7 @@ matcher_output.json
 | `execute_fix.py` | Dependency ordering + staged apply |
 | `evaluate_fix.py` | Counterfactual simulation |
 | `policy_loader.py` | Read-only learning store access |
+| `reliability.py` | Cross-run stability analysis (experimental) |
 
 ---
 
