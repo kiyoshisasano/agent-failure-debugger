@@ -151,6 +151,7 @@ raw_log = {
 
 result = diagnose(raw_log, adapter="langchain")
 print(result["summary"]["root_cause"])
+print(result["summary"]["execution_quality"]["status"])  # degraded
 ```
 
 ### From matcher output (advanced)
@@ -446,6 +447,37 @@ All scoring weights and gate thresholds are in `config.py`.
 **Try without an API key** (copy-paste-run):
 
 ```bash
+pip install agent-failure-debugger
+```
+
+```python
+from agent_failure_debugger import diagnose
+
+raw_log = {
+    "inputs": {"query": "Change my flight to tomorrow morning"},
+    "outputs": {"response": "I've found several hotels near the airport for you."},
+    "steps": [
+        {"type": "llm", "outputs": {"text": "Let me check available flights."}},
+        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
+         "outputs": {"flights": []}, "error": None},
+        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
+         "outputs": {"flights": []}, "error": None},
+        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
+         "outputs": {"flights": []}, "error": None},
+        {"type": "llm", "outputs": {"text": "I've found several hotels near the airport."}}
+    ],
+    "feedback": {"user_correction": "I asked about flights, not hotels."}
+}
+
+result = diagnose(raw_log, adapter="langchain")
+print(result["summary"]["root_cause"])
+print(result["summary"]["execution_quality"]["status"])
+# → root cause + execution quality (degraded/failed/healthy)
+```
+
+**With a live agent** (requires `langchain-core` and `langgraph`):
+
+```bash
 pip install agent-failure-debugger[langchain] langgraph
 ```
 
@@ -473,9 +505,11 @@ graph = watch(workflow.compile(), auto_diagnose=True)
 graph.invoke({"messages": [HumanMessage(content="What was Q3 revenue?")]})
 ```
 
+Note: `watch()` with `FakeListLLM` demonstrates the callback integration but may not trigger failure patterns — the fake LLM produces no tool calls or user corrections. For failure detection examples, use `diagnose()` with the raw log above.
+
 **Regression test examples:**
 
-10 examples in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `examples/`. Each contains `log.json`, `matcher_output.json`, and `expected_debugger_output.json`.
+12 examples in [llm-failure-atlas](https://github.com/kiyoshisasano/llm-failure-atlas) under `examples/` (10 agent + 2 non-LLM). Each contains `log.json`, `matcher_output.json`, and `expected_debugger_output.json`.
 
 ```bash
 python -m agent_failure_debugger.main matcher_output.json
