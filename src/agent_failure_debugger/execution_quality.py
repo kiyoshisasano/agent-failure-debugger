@@ -169,18 +169,24 @@ def _collect_degradation_indicators(
                 "concern": "output alignment with user intent is weak",
             })
 
-    # 2. Weak grounding
+    # 2. Weak grounding (only relevant when tools were actually used)
     if telemetry:
         tool_data = _get_field(telemetry, "grounding.tool_provided_data")
         uncertainty_ack = _get_field(
             telemetry, "grounding.uncertainty_acknowledged"
         )
 
-        if tool_data is False:
+        # Check if tools were actually called
+        tool_call_count = _get_field(telemetry, "tools.call_count")
+        tools_were_used = (
+            tool_call_count is not None and tool_call_count > 0
+        )
+
+        if tool_data is False and tools_were_used:
             indicators.append({
                 "signal": "grounding.tool_provided_data",
                 "value": False,
-                "concern": "no tool-provided data available for grounding",
+                "concern": "tools were called but provided no usable data",
             })
 
         if tool_data is True and uncertainty_ack is False:

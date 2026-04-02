@@ -3,7 +3,7 @@
 [![PyPI version](https://badge.fury.io/py/agent-failure-debugger.svg)](https://pypi.org/project/agent-failure-debugger/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://pypi.org/project/agent-failure-debugger/)
 
-Diagnoses *why* your LLM agent failed, not just *what* failed. Deterministic causal analysis with fix generation.
+Diagnoses agent execution behavior — not just *what* failed, but *why*, and whether execution quality is healthy, degraded, or failed. Deterministic causal analysis with fix generation.
 
 ```bash
 pip install agent-failure-debugger
@@ -13,6 +13,7 @@ pip install agent-failure-debugger
 from agent_failure_debugger import diagnose
 
 result = diagnose(raw_log, adapter="langchain")
+print(result["summary"]["execution_quality"]["status"])  # healthy / degraded / failed
 print(result["explanation"]["context_summary"])
 ```
 
@@ -187,6 +188,43 @@ See [Limitations & FAQ](docs/limitations_faq.md) for details.
 
 ## API Details
 
+### Execution quality
+
+Every `diagnose()` and `run_pipeline()` result now includes execution quality assessment in the summary:
+
+```python
+eq = result["summary"]["execution_quality"]
+print(eq["status"])              # "healthy" | "degraded" | "failed"
+print(eq["termination"]["mode"]) # "normal" | "silent_exit" | "error_exit" | "partial_exit" | "unknown"
+print(eq["indicators"])          # list of degradation concerns (empty if healthy)
+print(eq["summary"])             # one-line human-readable assessment
+```
+
+- **healthy** — no significant issues detected
+- **degraded** — output may have been produced but quality indicators are weak (low alignment, weak grounding, unmodeled failures)
+- **failed** — execution did not produce usable output (silent exit or error)
+
+Execution quality uses existing telemetry and diagnosis results. No new matcher patterns are added.
+
+### Multi-run analysis
+
+```python
+from agent_failure_debugger import compare_runs, diff_runs
+
+# Step 1: Is the agent stable across runs?
+stability = compare_runs(all_run_results)
+print(stability["stability"]["root_cause_agreement"])  # 1.0 = fully stable
+print(stability["interpretation"])
+
+# Step 2: What separates success from failure?
+diff = diff_runs(success_runs, failure_runs)
+print(diff["hypothesis"])
+print(diff["failure_set_diff"]["failure_only"])  # patterns only in failures
+print(diff["causal_path_diff"])                  # where paths diverge
+```
+
+`compare_runs()` measures stability — whether the same task produces consistent diagnoses across runs. `diff_runs()` identifies divergence — what structural differences separate successful runs from failed ones.
+
 ### Enhanced explanation
 
 ```python
@@ -325,7 +363,8 @@ matcher_output.json
     ├ autofix.py            fix selection + patch generation
     ├ auto_apply.py         confidence gate + reason_code
     ├ pipeline_post_apply.py  evaluation runner or counterfactual
-    ├ pipeline_summary.py     summary generation
+    ├ pipeline_summary.py     summary + execution quality assessment
+    ├ execution_quality.py    healthy/degraded/failed classification
     └ explainer.py          explanation (context + risk + observation)
 ```
 
@@ -354,7 +393,8 @@ matcher_output.json
 | `execute_fix.py` | Dependency ordering + staged apply |
 | `evaluate_fix.py` | Counterfactual simulation |
 | `policy_loader.py` | Read-only learning store access |
-| `reliability.py` | Cross-run stability analysis (experimental) |
+| `reliability.py` | Cross-run stability and differential analysis |
+| `execution_quality.py` | Single-run execution behavior assessment |
 
 ---
 

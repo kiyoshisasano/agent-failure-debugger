@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-failure-debugger"
-version = "0.1.0"
+version = "0.2.0"
 description = "Diagnose why your LLM agent failed. Deterministic causal analysis with fix generation."
 readme = "README.md"
 license = {text = "MIT"}
