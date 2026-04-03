@@ -137,6 +137,7 @@ def classify_termination(
 _ALIGNMENT_DEGRADED_THRESHOLD = 0.5    # below this → weak alignment
 _EXPANSION_RATIO_HIGH = 3.0            # above this → possible hallucination
 _OBSERVATION_COVERAGE_WEAK = "low"     # coverage level indicating sparse data
+_TOOL_DIVERSITY_LOW = 0.5              # below this → tool results are redundant
 
 
 def _collect_degradation_indicators(
@@ -201,6 +202,21 @@ def _collect_degradation_indicators(
                         "suggesting unsupported content generation"
                     ),
                 })
+
+        # Low tool result diversity: multiple calls returned identical data
+        diversity = _get_field(telemetry, "grounding.tool_result_diversity")
+        if (diversity is not None
+                and diversity < _TOOL_DIVERSITY_LOW
+                and tool_call_count is not None
+                and tool_call_count >= 2):
+            indicators.append({
+                "signal": "grounding.tool_result_diversity",
+                "value": diversity,
+                "concern": (
+                    "tools returned identical results across multiple calls, "
+                    "response may include content not supported by tool data"
+                ),
+            })
 
     # 3. Low observation coverage
     if diagnosis_context:
