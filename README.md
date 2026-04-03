@@ -21,15 +21,23 @@ print(result["explanation"]["context_summary"])
 
 ## Use the Debugger
 
-Use this when:
-- An agent gives confident answers without data
-- Tools return empty results or errors
-- Behavior changes between runs and you need to understand why
+Call `diagnose()` after every agent run. It returns execution quality (healthy, degraded, or failed), root cause analysis when failures are detected, and fix proposals.
 
-Choose your entry point:
+```python
+result = diagnose(raw_log, adapter="langchain")
+status = result["summary"]["execution_quality"]["status"]
 
-- **During development** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to observe live executions and diagnose behavior as it happens
-- **After failures** — use `diagnose()` to analyze a raw log or exported trace after the fact
+# In CI/CD or automated pipelines:
+assert status != "failed", f"Agent execution failed: {result['summary']['root_cause']}"
+```
+
+When the agent runs normally, you get `healthy` with confidence scores and grounding state. When something goes wrong, you get the root cause, causal path, and a fix proposal — without changing how you call the tool.
+
+**Entry points:**
+
+- **Every run** — call `diagnose()` on the raw log or trace after each execution
+- **Live observation** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to capture telemetry and diagnose during execution
+- **Multi-run comparison** — use `compare_runs()` and `diff_runs()` to track stability across runs
 
 Atlas detects failures; the debugger explains why they happened and proposes fixes. You can use Atlas alone for detection, but diagnosis requires the debugger.
 
@@ -128,7 +136,29 @@ For a copy-paste example without an API key, see [Reproducible Examples](#reprod
 pip install agent-failure-debugger
 ```
 
-### From Python (copy-paste-run)
+### Healthy run
+
+```python
+from agent_failure_debugger import diagnose
+
+raw_log = {
+    "inputs": {"query": "What was Q3 revenue?"},
+    "outputs": {"response": "Q3 revenue was $4.2M based on the latest earnings report."},
+    "steps": [
+        {"type": "tool", "name": "search_earnings", "inputs": {"quarter": "Q3"},
+         "outputs": {"revenue": "$4.2M", "source": "10-Q filing"}, "error": None},
+        {"type": "llm", "outputs": {"text": "Q3 revenue was $4.2M based on the latest earnings report."}}
+    ]
+}
+
+result = diagnose(raw_log, adapter="langchain")
+print(result["summary"]["execution_quality"]["status"])  # healthy
+print(result["summary"]["failure_count"])                 # 0
+```
+
+The tool returns a result on every run. When the agent is healthy, you get confirmation — not silence.
+
+### Degraded run
 
 ```python
 from agent_failure_debugger import diagnose
@@ -150,9 +180,11 @@ raw_log = {
 }
 
 result = diagnose(raw_log, adapter="langchain")
-print(result["summary"]["root_cause"])
-print(result["summary"]["execution_quality"]["status"])  # degraded
+print(result["summary"]["root_cause"])                    # incorrect_output
+print(result["summary"]["execution_quality"]["status"])   # degraded
 ```
+
+Same function, same interface. The difference is in the input, not in how you call the tool.
 
 ### From matcher output (advanced)
 
@@ -191,7 +223,7 @@ See [Limitations & FAQ](docs/limitations_faq.md) for details.
 
 ### Execution quality
 
-Every `diagnose()` and `run_pipeline()` result now includes execution quality assessment in the summary:
+Every `diagnose()` and `run_pipeline()` result includes execution quality assessment — this is what makes the tool useful on every run, not just when failures occur.
 
 ```python
 eq = result["summary"]["execution_quality"]
@@ -453,7 +485,7 @@ All scoring weights and gate thresholds are in `config.py`.
 
 ## Reproducible Examples
 
-**Try without an API key** (copy-paste-run):
+**Healthy run** (copy-paste-run, no API key needed):
 
 ```bash
 pip install agent-failure-debugger
@@ -462,6 +494,24 @@ pip install agent-failure-debugger
 ```python
 from agent_failure_debugger import diagnose
 
+raw_log = {
+    "inputs": {"query": "What was Q3 revenue?"},
+    "outputs": {"response": "Q3 revenue was $4.2M based on the latest earnings report."},
+    "steps": [
+        {"type": "tool", "name": "search_earnings", "inputs": {"quarter": "Q3"},
+         "outputs": {"revenue": "$4.2M", "source": "10-Q filing"}, "error": None},
+        {"type": "llm", "outputs": {"text": "Q3 revenue was $4.2M based on the latest earnings report."}}
+    ]
+}
+
+result = diagnose(raw_log, adapter="langchain")
+print(result["summary"]["execution_quality"]["status"])   # healthy
+print(result["summary"]["failure_count"])                  # 0
+```
+
+**Degraded run** (copy-paste-run):
+
+```python
 raw_log = {
     "inputs": {"query": "Change my flight to tomorrow morning"},
     "outputs": {"response": "I've found several hotels near the airport for you."},
@@ -481,7 +531,7 @@ raw_log = {
 result = diagnose(raw_log, adapter="langchain")
 print(result["summary"]["root_cause"])
 print(result["summary"]["execution_quality"]["status"])
-# → root cause + execution quality (degraded/failed/healthy)
+# → root cause + execution quality (degraded)
 ```
 
 **With a live agent** (requires `langchain-core` and `langgraph`):
