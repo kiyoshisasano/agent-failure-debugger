@@ -72,7 +72,7 @@ print(f"Confidence:  {s.get('root_confidence', 0)}")
 print(f"Failures:    {s.get('failure_count', 0)}")
 print(f"Fixes:       {s.get('fix_count', 0)}")
 
-# Execution quality (v0.2.0)
+# Execution quality
 eq = s.get("execution_quality", {})
 print(f"Status:      {eq.get('status', 'unknown')}")   # healthy / degraded / failed
 print(f"Termination: {eq.get('termination', {}).get('mode', 'unknown')}")
@@ -101,7 +101,7 @@ eq = result["summary"]["execution_quality"]
 |---|---|
 | `healthy` | No significant issues detected |
 | `degraded` | Output was produced but quality indicators are weak (low alignment, weak grounding) |
-| `failed` | Execution did not produce usable output (silent exit or error) |
+| `failed` | Execution did not produce usable output (silent exit, error, or task incomplete — tools failed and agent gave up) |
 
 Termination mode classifies how the agent ended:
 
@@ -130,6 +130,62 @@ result = graph.invoke({"messages": [...]})
 ```
 
 Add `auto_pipeline=True` to also run the full debugger pipeline (root cause + fix proposal) on completion.
+
+---
+
+## Self-healing agent (LangGraph)
+
+Add automatic failure detection and informed retry to any LangGraph agent. Requires `pip install agent-failure-debugger[langchain] langgraph`.
+
+```python
+from agent_failure_debugger import create_health_check
+from langgraph.graph import StateGraph, MessagesState, START, END
+
+health_check, route = create_health_check(max_retries=2)
+
+workflow = StateGraph(MessagesState)
+workflow.add_node("agent", agent_node)
+workflow.add_node("tools", tool_node)
+workflow.add_node("health_check", health_check)
+
+workflow.add_edge(START, "agent")
+workflow.add_conditional_edges("agent", should_continue,
+                               {"tools": "tools", "check": "health_check"})
+workflow.add_edge("tools", "agent")
+workflow.add_conditional_edges("health_check", route,
+                               {"retry": "agent", "end": END})
+```
+
+On retry, the diagnosis is injected into the conversation as a HumanMessage — the LLM reads *why* it failed and adjusts its approach (informed retry, not blind).
+
+Not all failures benefit from retry. The 17 Atlas patterns are classified as retryable (transient errors, LLM non-determinism) or structural (bad prompts, config issues). Structural failures are reported immediately without wasting retries. See [examples/self_healing/](../examples/self_healing/) for a working demo.
+
+---
+
+## CI integration (pytest)
+
+Use [pytest-agent-health](https://github.com/kiyoshisasano/pytest-agent-health) to catch silent agent failures in CI:
+
+```bash
+pip install pytest-agent-health
+```
+
+```python
+def test_agent_completes_task(agent_health):
+    raw_log = my_agent.run("What was Q3 revenue?")
+    agent_health.check(raw_log, adapter="langchain")
+    # → FAIL if execution failed or degraded with risk indicators (strict)
+    # → WARN if minor concerns detected
+    # → PASS if healthy
+```
+
+```bash
+pytest --agent-health                          # default: degraded = WARN
+pytest --agent-health --agent-health-strict    # degraded + risk = FAIL
+pytest --agent-health --agent-health-fail-on=premature_termination
+```
+
+CI detects failures. Production heals them with `create_health_check()`.
 
 ---
 
