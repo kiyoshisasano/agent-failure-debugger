@@ -33,11 +33,11 @@ assert status != "failed", f"Agent execution failed: {result['summary']['root_ca
 
 When the agent runs normally, you get `healthy` with confidence scores and grounding state. When something goes wrong, you get the root cause, causal path, and a fix proposal — without changing how you call the tool.
 
-**Entry points:**
+**Three ways to use it:**
 
-- **Every run** — call `diagnose()` on the raw log or trace after each execution
-- **Live observation** — use Atlas [`watch()`](https://github.com/kiyoshisasano/llm-failure-atlas) to capture telemetry and diagnose during execution
-- **Multi-run comparison** — use `compare_runs()` and `diff_runs()` to track stability across runs
+- **Failure diagnosis** — an agent broke, you need to know why. `diagnose()` returns root cause, causal path, explanation, and a fix proposal. This is the core use case.
+- **Health check** — call `diagnose()` after every run and check `execution_quality.status`. Healthy runs return `healthy`; degraded quality (weak grounding, redundant tool results, low alignment) is surfaced before it becomes a failure. Track degraded frequency over time to catch regressions early.
+- **Run comparison** — same prompt produces different results across runs. `compare_runs()` measures stability; `diff_runs()` identifies what structurally separates successful runs from failed ones.
 
 Atlas detects failures; the debugger explains why they happened and proposes fixes. You can use Atlas alone for detection, but diagnosis requires the debugger.
 
@@ -182,6 +182,11 @@ raw_log = {
 result = diagnose(raw_log, adapter="langchain")
 print(result["summary"]["root_cause"])                    # incorrect_output
 print(result["summary"]["execution_quality"]["status"])   # degraded
+print(result["explanation"]["context_summary"])
+# → "Root cause identified: the system produced output misaligned with
+#    user intent, requiring correction (confidence: 0.625)."
+print(result["explanation"]["risk"]["level"])              # low
+print(result["summary"]["fix_count"])                     # 1
 ```
 
 Same function, same interface. The difference is in the input, not in how you call the tool.
@@ -243,6 +248,8 @@ Execution quality uses existing telemetry and diagnosis results. No new matcher 
 
 ### Multi-run analysis
 
+When the same prompt produces different results across runs, you need to know whether the agent is unstable and what causes the divergence.
+
 ```python
 from agent_failure_debugger import compare_runs, diff_runs
 
@@ -258,7 +265,7 @@ print(diff["failure_set_diff"]["failure_only"])  # patterns only in failures
 print(diff["causal_path_diff"])                  # where paths diverge
 ```
 
-`compare_runs()` measures stability — whether the same task produces consistent diagnoses across runs. `diff_runs()` identifies divergence — what structural differences separate successful runs from failed ones.
+`compare_runs()` measures stability — whether the same task produces consistent diagnoses across runs. `diff_runs()` identifies divergence — what structural differences separate successful runs from failed ones. Together they answer "is this agent reliable, and if not, why does it sometimes fail?"
 
 For runnable examples with expected output, see [examples/multi_run_stability](examples/multi_run_stability/) (compare_runs → diff_runs workflow) and [examples/termination_divergence](examples/termination_divergence/) (same root cause, different exit modes).
 
