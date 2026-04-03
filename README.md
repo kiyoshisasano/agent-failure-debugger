@@ -128,6 +128,33 @@ result = graph.invoke({"messages": [...]})
 
 For a copy-paste example without an API key, see [Reproducible Examples](#reproducible-examples) below.
 
+### Self-healing agent (LangGraph)
+
+Add automatic failure detection and informed retry to any LangGraph agent. When the health check detects a retryable failure, it injects the diagnosis into the conversation — the LLM reads *why* it failed and adjusts its approach. This is not a blind retry.
+
+```python
+from agent_failure_debugger import create_health_check
+from langgraph.graph import StateGraph, MessagesState, START, END
+
+health_check, route = create_health_check(max_retries=2)
+
+workflow = StateGraph(MessagesState)
+workflow.add_node("agent", agent_node)
+workflow.add_node("tools", tool_node)
+workflow.add_node("health_check", health_check)
+
+workflow.add_edge(START, "agent")
+workflow.add_conditional_edges("agent", should_continue,
+                               {"tools": "tools", "check": "health_check"})
+workflow.add_edge("tools", "agent")
+workflow.add_conditional_edges("health_check", route,
+                               {"retry": "agent", "end": END})
+```
+
+On retry, the health check appends a message like: *"Previous attempt status: failed. The tool may have experienced a transient error that has since resolved. Please call the tool again."* — the LLM reads this and retries the tool.
+
+Not all failures benefit from retry. The integration classifies all 17 Atlas patterns as either retryable (transient errors, LLM non-determinism) or structural (bad prompts, config issues). Structural failures are reported immediately without wasting retries. See [examples/self_healing/](examples/self_healing/) for a working demo validated across GPT, Claude, and Gemini.
+
 ---
 
 ## Quick Start
@@ -439,11 +466,13 @@ matcher_output.json
 | `policy_loader.py` | Read-only learning store access |
 | `reliability.py` | Cross-run stability and differential analysis |
 | `execution_quality.py` | Single-run execution behavior assessment |
+| `integrations/langgraph.py` | LangGraph self-healing health check node |
 
 ### Examples
 
 | Directory | Demonstrates |
 |---|---|
+| `examples/self_healing/` | `create_health_check()`: LangGraph self-healing with informed retry across 3 models |
 | `examples/termination_divergence/` | `diff_runs()`: same root cause, different termination modes |
 | `examples/multi_run_stability/` | `compare_runs()` → `diff_runs()`: two-step stability and divergence workflow |
 

@@ -10,9 +10,9 @@ into the conversation, and the agent retries with awareness of
 what went wrong.
 
 Three scenarios:
-  1. tool_flaky    驕ｯ・ｶ郢晢ｽｻTool fails on first call, succeeds on retry
-  2. tool_loop     驕ｯ・ｶ郢晢ｽｻTool returns same data for different queries
-  3. healthy       驕ｯ・ｶ郢晢ｽｻEverything works (control case)
+  1. tool_flaky    — Tool fails on first call, succeeds on retry
+  2. tool_loop     — Tool returns same data for different queries
+  3. healthy       — Everything works (control case)
 
 Usage:
     # Run with default model (gpt-4o-mini)
@@ -81,8 +81,8 @@ def get_company_revenue_flaky(company: str) -> str:
 
     call_num = _tool_call_counter["get_company_revenue_flaky"]
 
-    # Fail on first 2 calls, succeed from 3rd onward
-    if call_num <= 2:
+    # Fail on first call, succeed on subsequent calls
+    if call_num == 1:
         return "Error: Service temporarily unavailable. Please try again."
 
     data = {
@@ -98,7 +98,7 @@ def get_company_revenue_loop(company: str) -> str:
     """Get the annual revenue for a company. Supports: Apple, Microsoft, Google."""
     # Always returns the same data regardless of input
     # Simulates a broken API that ignores parameters
-    return "Revenue: $394.3 billion (FY2024) 驕ｯ・ｶ郢晢ｽｻApple Inc."
+    return "Revenue: $394.3 billion (FY2024) — Apple Inc."
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ def get_llm(model_name: str):
         return ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
     elif model_name == "claude":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0.3)
+        return ChatAnthropic(model="claude-haiku-4-5-20241022", temperature=0.3)
     elif model_name == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
@@ -173,7 +173,7 @@ def build_self_healing_graph(llm, tools_list):
 
 SCENARIOS = {
     "healthy": {
-        "description": "Normal operation 驕ｯ・ｶ郢晢ｽｻtool works correctly",
+        "description": "Normal operation — tool works correctly",
         "query": "What is Apple's annual revenue?",
         "tools": [get_company_revenue],
         "expected_status": "healthy",
@@ -213,7 +213,7 @@ def run_scenario(scenario_name: str, model_name: str):
     try:
         llm = get_llm(model_name)
     except (ImportError, Exception) as e:
-        print(f"  驕ｶ・｢繝ｻ・ｭ Skipping {model_name}: {e}")
+        print(f"  ⏭ Skipping {model_name}: {e}")
         return None
 
     graph, diagnoses = build_self_healing_graph(llm, scenario["tools"])
@@ -224,13 +224,13 @@ def run_scenario(scenario_name: str, model_name: str):
                 SystemMessage(content=(
                     "You are a financial research assistant. "
                     "Always use the available tools to look up data. "
-                    "Never answer from memory 驕ｯ・ｶ郢晢ｽｻalways call a tool first."
+                    "Never answer from memory — always call a tool first."
                 )),
                 HumanMessage(content=scenario["query"]),
             ]
         })
     except Exception as e:
-        print(f"  髫ｨ・ｶ郢晢ｽｻExecution error: {e}")
+        print(f"  ❌ Execution error: {e}")
         return None
 
     # Print final output

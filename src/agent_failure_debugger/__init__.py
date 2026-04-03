@@ -21,6 +21,14 @@ Multi-run:
     # Differential diagnosis: what separates success from failure?
     diff = diff_runs(success_runs, failure_runs)
     print(diff["hypothesis"])
+
+Self-healing (LangGraph):
+    from agent_failure_debugger import create_health_check
+
+    health_check, route = create_health_check(max_retries=2)
+    workflow.add_node("health_check", health_check)
+    workflow.add_conditional_edges("health_check", route,
+                                   {"retry": "agent", "end": END})
 """
 
 __version__ = "0.2.1"
@@ -115,3 +123,38 @@ def diff_runs(success_runs, failure_runs, task_id=None):
     """
     from agent_failure_debugger.reliability import diff_runs as _diff
     return _diff(success_runs, failure_runs, task_id=task_id)
+
+
+# ---------------------------------------------------------------------------
+# LangGraph self-healing API
+# ---------------------------------------------------------------------------
+
+def create_health_check(**kwargs):
+    """Create a self-healing health check node for LangGraph.
+
+    Adds automatic failure detection and informed retry to any
+    LangGraph agent. On retry, the diagnosis is injected into the
+    conversation so the LLM can adjust its approach.
+
+    Requires langchain-core: pip install agent-failure-debugger[langchain]
+
+    Args:
+        max_retries: Maximum retry attempts (default 2).
+        retry_on_degraded: Retry on degraded status (default False).
+        inject_feedback: Custom function(state, text) -> state_update.
+        on_diagnosis: Callback receiving full diagnosis on every check.
+        verbose: Print health check results (default True).
+
+    Returns:
+        Tuple of (health_check_node, route_on_health) functions.
+    """
+    try:
+        from agent_failure_debugger.integrations.langgraph import (
+            create_health_check as _create,
+        )
+    except ImportError:
+        raise ImportError(
+            "create_health_check() requires langchain-core. "
+            "Install with: pip install agent-failure-debugger[langchain]"
+        )
+    return _create(**kwargs)

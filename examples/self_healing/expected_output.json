@@ -1,0 +1,50 @@
+{
+  "description": "Expected behavior for self-healing demo across 3 models x 3 scenarios",
+  "validated": "2026-04-03",
+  "models": ["gpt-4o-mini", "claude-haiku-4-5-20251001", "gemini-2.5-flash"],
+  "scenarios": {
+    "healthy": {
+      "expected_status": "healthy",
+      "expected_retries": 0,
+      "notes": "All models call the tool, get correct data, and produce a healthy response."
+    },
+    "tool_flaky": {
+      "expected_status": "failed then healthy",
+      "expected_retries": "1-2",
+      "notes": [
+        "Tool fails on first 2 calls, succeeds from 3rd onward.",
+        "Health check detects task_incomplete (tool_provided_data=false + uncertainty_acknowledged=true) and promotes to failed.",
+        "Feedback message injected as HumanMessage telling agent to retry the tool.",
+        "GPT: 1 retry to healthy. Claude: 1 retry to success (degraded due to alignment score). Gemini: 2 retries to healthy."
+      ]
+    },
+    "tool_loop": {
+      "expected_status": "degraded",
+      "expected_retries": 0,
+      "notes": [
+        "Tool returns identical Apple data for all 3 companies.",
+        "Health check detects low tool_result_diversity (0.33) and expansion_ratio.",
+        "No retry — this is a structural problem (broken API), not a transient error.",
+        "GPT: reports inability to get other companies' data. Claude: presents identical data with caveat. Gemini: correctly identifies the tool is returning wrong data."
+      ]
+    }
+  },
+  "retryable_patterns": [
+    "agent_tool_call_loop",
+    "failed_termination",
+    "premature_termination",
+    "premature_model_commitment",
+    "incorrect_output",
+    "tool_result_misinterpretation"
+  ],
+  "structural_patterns": [
+    "context_truncation_loss",
+    "instruction_priority_inversion",
+    "clarification_failure",
+    "assumption_invalidation_failure",
+    "rag_retrieval_drift",
+    "semantic_cache_intent_bleeding",
+    "prompt_injection_via_retrieval",
+    "repair_strategy_failure"
+  ]
+}
