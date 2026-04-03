@@ -82,7 +82,7 @@ def get_company_revenue_flaky(company: str) -> str:
     call_num = _tool_call_counter["get_company_revenue_flaky"]
 
     # Fail on first call, succeed on subsequent calls
-    if call_num == 1:
+    if call_num <= 2:
         return "Error: Service temporarily unavailable. Please try again."
 
     data = {
@@ -112,7 +112,7 @@ def get_llm(model_name: str):
         return ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
     elif model_name == "claude":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model="claude-haiku-4-5-20241022", temperature=0.3)
+        return ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0.3)
     elif model_name == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
