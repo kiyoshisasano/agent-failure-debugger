@@ -234,8 +234,10 @@ print(eq["summary"])             # one-line human-readable assessment
 ```
 
 - **healthy** — no significant issues detected
-- **degraded** — output may have been produced but quality indicators are weak (low alignment, weak grounding, unmodeled failures)
+- **degraded** — output may have been produced but quality indicators are weak (low alignment, weak grounding, redundant tool results, unmodeled failures)
 - **failed** — execution did not produce usable output (silent exit or error)
+
+Degradation indicators include: low alignment score (< 0.5), tools called but no usable data returned, high expansion ratio without uncertainty disclosure (> 3.0), low tool result diversity (< 0.5 across 2+ calls — tools returned identical results), low observation coverage, and unmodeled or conflicting failure signals.
 
 Execution quality uses existing telemetry and diagnosis results. No new matcher patterns are added.
 
