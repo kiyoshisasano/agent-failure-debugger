@@ -1,0 +1,59 @@
+{
+  "task_id": "flight_booking",
+  "diagnosis": {
+    "root_candidates": ["premature_model_commitment"],
+    "root_ranking": [
+      {"id": "premature_model_commitment", "score": 0.85}
+    ],
+    "failures": [
+      {
+        "id": "premature_model_commitment",
+        "confidence": 0.7,
+        "signals": {
+          "ambiguity_without_clarification": true,
+          "assumption_persistence_after_correction": true
+        }
+      },
+      {
+        "id": "incorrect_output",
+        "confidence": 0.7,
+        "signals": {
+          "output_misaligned_with_intent": true,
+          "user_correction_required": true
+        },
+        "caused_by": ["premature_model_commitment"]
+      }
+    ],
+    "causal_links": [
+      {
+        "from": "premature_model_commitment",
+        "to": "incorrect_output",
+        "relation": "induces"
+      }
+    ],
+    "causal_paths": [
+      ["premature_model_commitment", "incorrect_output"]
+    ],
+    "primary_path": ["premature_model_commitment", "incorrect_output"],
+    "alternative_paths": [],
+    "conflicts": []
+  },
+  "summary": {
+    "root_cause": "premature_model_commitment",
+    "root_confidence": 0.85,
+    "failure_count": 2,
+    "fix_count": 1,
+    "gate_mode": "proposal_only",
+    "gate_score": 0.6,
+    "applied": false,
+    "execution_quality": {
+      "status": "degraded",
+      "termination": {"mode": "normal", "reasons": ["state.output_produced is true"]},
+      "indicators": [
+        {"signal": "response.alignment_score", "value": 0.25, "concern": "output alignment with user intent is weak"}
+      ],
+      "summary": "Execution completed but quality is degraded: output alignment with user intent is weak. 2 failure pattern(s) detected."
+    }
+  },
+  "fix": {}
+}

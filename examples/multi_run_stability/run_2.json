@@ -1,0 +1,57 @@
+{
+  "task_id": "flight_booking",
+  "diagnosis": {
+    "root_candidates": ["agent_tool_call_loop"],
+    "root_ranking": [
+      {"id": "agent_tool_call_loop", "score": 0.85}
+    ],
+    "failures": [
+      {
+        "id": "agent_tool_call_loop",
+        "confidence": 0.7,
+        "signals": {
+          "repeated_tool_call_without_progress": true,
+          "no_replanning_before_repeat": true
+        }
+      },
+      {
+        "id": "premature_termination",
+        "confidence": 0.75,
+        "signals": {
+          "silent_exit_without_output": true,
+          "tools_called_but_no_output": true
+        },
+        "caused_by": ["agent_tool_call_loop"]
+      }
+    ],
+    "causal_links": [
+      {
+        "from": "agent_tool_call_loop",
+        "to": "premature_termination",
+        "relation": "induces"
+      }
+    ],
+    "causal_paths": [
+      ["agent_tool_call_loop", "premature_termination"]
+    ],
+    "primary_path": ["agent_tool_call_loop", "premature_termination"],
+    "alternative_paths": [],
+    "conflicts": []
+  },
+  "summary": {
+    "root_cause": "agent_tool_call_loop",
+    "root_confidence": 0.85,
+    "failure_count": 2,
+    "fix_count": 1,
+    "gate_mode": "proposal_only",
+    "gate_score": 0.6,
+    "applied": false,
+    "execution_quality": {
+      "status": "failed",
+      "termination": {"mode": "silent_exit", "reasons": ["state.output_produced is false"]},
+      "indicators": [],
+      "summary": "Execution stopped without output. 2 failure pattern(s) detected."
+    }
+  },
+  "fix": {}
+}

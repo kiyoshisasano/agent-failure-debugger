@@ -1,0 +1,29 @@
+{
+  "task_id": "flight_booking",
+  "diagnosis": {
+    "root_candidates": [],
+    "root_ranking": [],
+    "failures": [],
+    "causal_links": [],
+    "causal_paths": [],
+    "primary_path": null,
+    "alternative_paths": [],
+    "conflicts": []
+  },
+  "summary": {
+    "root_cause": "unknown",
+    "root_confidence": 0.0,
+    "failure_count": 0,
+    "fix_count": 0,
+    "gate_mode": "proposal_only",
+    "gate_score": 0.0,
+    "applied": false,
+    "execution_quality": {
+      "status": "healthy",
+      "termination": {"mode": "normal", "reasons": ["state.output_produced is true"]},
+      "indicators": [],
+      "summary": "Execution completed normally with no significant issues."
+    }
+  },
+  "fix": {}
+}
