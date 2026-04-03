@@ -12,7 +12,7 @@ This installs both `agent-failure-debugger` and `llm-failure-atlas` (its depende
 
 ## Recommended for most users: `diagnose()`
 
-The simplest way to use the tool. One function handles everything: adapt → detect → diagnose → explain.
+The simplest way to use the tool. One function handles everything: adapt → detect → diagnose → explain → assess execution quality.
 
 ```python
 from agent_failure_debugger import diagnose
@@ -71,9 +71,14 @@ print(f"Root cause:  {s.get('root_cause', 'none')}")
 print(f"Confidence:  {s.get('root_confidence', 0)}")
 print(f"Failures:    {s.get('failure_count', 0)}")
 print(f"Fixes:       {s.get('fix_count', 0)}")
+
+# Execution quality (v0.2.0)
+eq = s.get("execution_quality", {})
+print(f"Status:      {eq.get('status', 'unknown')}")   # healthy / degraded / failed
+print(f"Termination: {eq.get('termination', {}).get('mode', 'unknown')}")
 ```
 
-**Available adapters:** `langchain`, `langsmith`, `crewai`, `redis_help_demo`. See [Adapter Formats](adapter_formats.md) for the input shape each adapter expects.
+**Available adapters:** `langchain`, `langsmith`, `crewai`, `redis_help_demo`. See [Adapter Formats](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/adapter_formats.md) for the input shape each adapter expects.
 
 **Minimal input requirement (langchain adapter):**
 - `inputs.query` — the user's question
@@ -81,6 +86,34 @@ print(f"Fixes:       {s.get('fix_count', 0)}")
 - `steps` with `type` set to `"llm"` or `"tool"`
 
 Without these, detection will be limited or return zero failures. The system does not raise errors for incomplete input — it silently returns zero failures.
+
+---
+
+## Execution quality
+
+Every `diagnose()` result includes an execution quality assessment in the summary:
+
+```python
+eq = result["summary"]["execution_quality"]
+```
+
+| Status | Meaning |
+|---|---|
+| `healthy` | No significant issues detected |
+| `degraded` | Output was produced but quality indicators are weak (low alignment, weak grounding) |
+| `failed` | Execution did not produce usable output (silent exit or error) |
+
+Termination mode classifies how the agent ended:
+
+| Mode | Meaning |
+|---|---|
+| `normal` | Agent completed and produced output |
+| `silent_exit` | Agent stopped without output or error |
+| `error_exit` | Agent stopped due to an execution error |
+| `partial_exit` | Agent produced output despite an error |
+| `unknown` | Insufficient telemetry to determine |
+
+Execution quality uses existing telemetry and diagnosis results. No new matcher patterns are added — this assessment sits in the summary layer.
 
 ---
 
@@ -97,6 +130,59 @@ result = graph.invoke({"messages": [...]})
 ```
 
 Add `auto_pipeline=True` to also run the full debugger pipeline (root cause + fix proposal) on completion.
+
+---
+
+## Multi-run analysis
+
+When the same task is run multiple times (common with non-deterministic LLM agents), use the two-step workflow:
+
+### Step 1: Is the agent stable?
+
+```python
+from agent_failure_debugger import compare_runs
+
+stability = compare_runs(all_run_results)
+print(stability["stability"]["root_cause_agreement"])  # 1.0 = fully stable
+print(stability["interpretation"])
+```
+
+`compare_runs()` takes a list of `run_pipeline()` outputs (at least 2) and measures how consistently the debugger diagnoses the same failures across runs.
+
+### Step 2: What separates success from failure?
+
+```python
+from agent_failure_debugger import diff_runs
+
+diff = diff_runs(success_runs, failure_runs)
+print(diff["hypothesis"])
+print(diff["failure_set_diff"]["failure_only"])
+```
+
+`diff_runs()` compares two groups of runs and identifies structural differences: patterns that only appear in failures, root cause shifts, signal-level divergence, and causal path differences.
+
+### Separating runs by execution quality
+
+Use `execution_quality.status` to automatically split runs into success and failure groups:
+
+```python
+from agent_failure_debugger import diagnose, compare_runs, diff_runs
+
+# Run the same task multiple times
+results = [diagnose(log, adapter="langchain") for log in run_logs]
+
+# Step 1: Check stability
+stability = compare_runs(results)
+if stability["stability"]["root_cause_agreement"] < 1.0:
+    # Step 2: Identify divergence
+    success = [r for r in results if r["summary"]["execution_quality"]["status"] == "healthy"]
+    failure = [r for r in results if r["summary"]["execution_quality"]["status"] != "healthy"]
+    if success and failure:
+        diff = diff_runs(success, failure)
+        print(diff["hypothesis"])
+```
+
+For runnable examples, see [examples/multi_run_stability](../examples/multi_run_stability/) and [examples/termination_divergence](../examples/termination_divergence/).
 
 ---
 
@@ -142,6 +228,7 @@ if diagnosed:
     result = run_pipeline(diagnosed)
     s = result["summary"]
     print(f"\nRoot cause: {s['root_cause']}, Fixes: {s['fix_count']}")
+    print(f"Execution:  {s['execution_quality']['status']}")
 ```
 
 ---
@@ -154,7 +241,10 @@ if diagnosed:
 The adapter needs enough data to extract signals. A minimal log with just `{"steps": [{"type": "llm", "output": "..."}]}` won't trigger most patterns because the adapter can't compute tool loops, cache misuse, or grounding signals. Provide complete traces with tool calls, retriever results, and input/output pairs.
 
 **Wrong adapter:**
-Each adapter expects a specific input shape. Using `langchain` adapter with a LangSmith run-tree export (or vice versa) produces empty telemetry and detects nothing. No error is raised — it silently returns zero failures. See [Adapter Formats](adapter_formats.md).
+Each adapter expects a specific input shape. Using `langchain` adapter with a LangSmith run-tree export (or vice versa) produces empty telemetry and detects nothing. No error is raised — it silently returns zero failures. See [Adapter Formats](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/adapter_formats.md).
 
 **"0 failures" doesn't mean your agent is fine:**
 It means no detectable pattern matched with the available signals. If your adapter doesn't produce `state` or `grounding` fields (e.g., `crewai` adapter), some patterns can't fire. See [Adapter Coverage](limitations_faq.md#adapter-coverage).
+
+**"degraded" doesn't mean broken:**
+`execution_quality.status = "degraded"` means the agent produced output but quality indicators suggest concerns (low alignment, weak grounding, high expansion ratio). It is a signal to review, not a definitive failure judgment. The thresholds are intentionally conservative.
