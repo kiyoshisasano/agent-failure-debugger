@@ -1,0 +1,59 @@
+{
+  "run_counts": {
+    "success": 1,
+    "failure": 1
+  },
+  "failure_set_diff": {
+    "failure_only": {
+      "failed_termination": {
+        "frequency": 1.0,
+        "mean_confidence": 0.7
+      }
+    },
+    "success_only": {
+      "premature_termination": {
+        "frequency": 1.0,
+        "mean_confidence": 0.75
+      }
+    },
+    "shared": [
+      "agent_tool_call_loop"
+    ]
+  },
+  "root_cause_diff": {
+    "success_dominant": {
+      "root": "agent_tool_call_loop",
+      "agreement": 1.0
+    },
+    "failure_dominant": {
+      "root": "agent_tool_call_loop",
+      "agreement": 1.0
+    },
+    "shifted": false
+  },
+  "signal_diff": [],
+  "confidence_diff": [],
+  "causal_path_diff": {
+    "failure_only_paths": [
+      {
+        "path": [
+          "agent_tool_call_loop",
+          "failed_termination"
+        ],
+        "terminal_node": "failed_termination"
+      }
+    ],
+    "success_only_paths": [
+      {
+        "path": [
+          "agent_tool_call_loop",
+          "premature_termination"
+        ],
+        "terminal_node": "premature_termination"
+      }
+    ],
+    "shared_paths": []
+  },
+  "hypothesis": "Failures are associated with patterns not seen in successful runs: failed_termination. These are the primary candidates for the failure cause. Termination mode differs: successful runs end at premature_termination, while failures end at failed_termination.",
+  "task_id": "retry_loop_comparison"
+}

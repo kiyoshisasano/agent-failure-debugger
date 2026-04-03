@@ -1,0 +1,93 @@
+{
+  "compare_runs": {
+    "run_count": 5,
+    "stability": {
+      "root_cause_agreement": 0.6,
+      "root_cause_mode": "unknown",
+      "root_cause_distribution": {
+        "unknown": 3,
+        "agent_tool_call_loop": 1,
+        "premature_model_commitment": 1
+      },
+      "failure_set_jaccard": 0.3,
+      "stable_failures": [],
+      "intermittent_failures": [
+        "agent_tool_call_loop",
+        "incorrect_output",
+        "premature_model_commitment",
+        "premature_termination"
+      ],
+      "confidence_cv": {
+        "premature_model_commitment": 0.0,
+        "incorrect_output": 0.0,
+        "agent_tool_call_loop": 0.0,
+        "premature_termination": 0.0
+      }
+    },
+    "interpretation": "Root cause is unstable: 'unknown' was the most common at 60%, but other causes appeared. Detected failure sets vary significantly across runs. The agent's behavior is highly non-deterministic for this input. Intermittent failures (not in every run): agent_tool_call_loop, incorrect_output, premature_model_commitment, premature_termination.",
+    "task_id": "flight_booking"
+  },
+  "diff_runs": {
+    "run_counts": {
+      "success": 3,
+      "failure": 2
+    },
+    "failure_set_diff": {
+      "failure_only": {
+        "agent_tool_call_loop": {
+          "frequency": 0.5,
+          "mean_confidence": 0.7
+        },
+        "incorrect_output": {
+          "frequency": 0.5,
+          "mean_confidence": 0.7
+        },
+        "premature_model_commitment": {
+          "frequency": 0.5,
+          "mean_confidence": 0.7
+        },
+        "premature_termination": {
+          "frequency": 0.5,
+          "mean_confidence": 0.75
+        }
+      },
+      "success_only": {},
+      "shared": []
+    },
+    "root_cause_diff": {
+      "success_dominant": {
+        "root": "unknown",
+        "agreement": 1.0
+      },
+      "failure_dominant": {
+        "root": "agent_tool_call_loop",
+        "agreement": 0.5
+      },
+      "shifted": true
+    },
+    "signal_diff": [],
+    "confidence_diff": [],
+    "causal_path_diff": {
+      "failure_only_paths": [
+        {
+          "path": [
+            "agent_tool_call_loop",
+            "premature_termination"
+          ],
+          "terminal_node": "premature_termination"
+        },
+        {
+          "path": [
+            "premature_model_commitment",
+            "incorrect_output"
+          ],
+          "terminal_node": "incorrect_output"
+        }
+      ],
+      "success_only_paths": [],
+      "shared_paths": []
+    },
+    "hypothesis": "Failures are associated with patterns not seen in successful runs: agent_tool_call_loop, incorrect_output, premature_model_commitment, premature_termination. These are the primary candidates for the failure cause. The root cause shifted from 'unknown' in successful runs to 'agent_tool_call_loop' in failed runs.",
+    "task_id": "flight_booking"
+  }
+}
