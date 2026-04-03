@@ -165,7 +165,7 @@ result = run_pipeline(matcher_output, use_learning=True)
 print(result["summary"])
 ```
 
-See [Quick Start Guide](docs/quickstart.md) for more usage patterns including `watch()` and direct telemetry.
+See [Quick Start Guide](docs/quickstart.md) for more usage patterns including `watch()`, multi-run analysis, and direct telemetry.
 
 ## Common Mistakes
 
