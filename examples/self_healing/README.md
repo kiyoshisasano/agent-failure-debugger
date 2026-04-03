@@ -126,3 +126,17 @@ python self_healing_demo.py --model gemini
 # Test all three
 python self_healing_demo.py --model all
 ```
+
+## What to Expect in Practice
+
+Self-healing adds value when the agent gives up on a task that a retry could fix. In testing across GPT, Claude, and Gemini, the same scenario sometimes triggers self-healing and sometimes doesn't — because LLM behavior is non-deterministic.
+
+For example, with a flaky tool (fails once, then recovers):
+
+- GPT often self-retries the tool without health check intervention
+- Claude sometimes gives up immediately ("service unavailable"), sometimes retries on its own
+- Gemini tends to give up, making it the most consistent beneficiary of self-healing
+
+This means self-healing is not a guarantee of recovery — it's a safety net. When the agent happens to give up on a retryable problem, the health check catches it and gives the agent another chance with diagnostic feedback. When the agent recovers on its own, the health check confirms healthy and stays out of the way.
+
+The retryable/structural classification is honest about this: only 6 of 17 patterns are marked retryable, and even those depend on the failure being transient rather than systemic.
