@@ -226,6 +226,8 @@ print(diff["causal_path_diff"])                  # where paths diverge
 
 `compare_runs()` measures stability — whether the same task produces consistent diagnoses across runs. `diff_runs()` identifies divergence — what structural differences separate successful runs from failed ones.
 
+For runnable examples with expected output, see [examples/multi_run_stability](examples/multi_run_stability/) (compare_runs → diff_runs workflow) and [examples/termination_divergence](examples/termination_divergence/) (same root cause, different exit modes).
+
 ### Enhanced explanation
 
 ```python
@@ -397,6 +399,13 @@ matcher_output.json
 | `reliability.py` | Cross-run stability and differential analysis |
 | `execution_quality.py` | Single-run execution behavior assessment |
 
+### Examples
+
+| Directory | Demonstrates |
+|---|---|
+| `examples/termination_divergence/` | `diff_runs()`: same root cause, different termination modes |
+| `examples/multi_run_stability/` | `compare_runs()` → `diff_runs()`: two-step stability and divergence workflow |
+
 ---
 
 ## Graph Source
@@ -514,6 +523,13 @@ Note: `watch()` with `FakeListLLM` demonstrates the callback integration but may
 ```bash
 python -m agent_failure_debugger.main matcher_output.json
 ```
+
+**Multi-run analysis examples:**
+
+2 examples in this repository under `examples/`. Each contains input fixtures, a runnable script, and `expected_output.json`:
+
+- [termination_divergence](examples/termination_divergence/) — `diff_runs()` comparing silent exit vs error exit
+- [multi_run_stability](examples/multi_run_stability/) — `compare_runs()` → `diff_runs()` two-step workflow
 
 ---
 
