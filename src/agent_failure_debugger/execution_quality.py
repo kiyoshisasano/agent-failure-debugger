@@ -130,6 +130,42 @@ def classify_termination(
 
 
 # ---------------------------------------------------------------------------
+# Task incomplete detection
+# ---------------------------------------------------------------------------
+
+def _is_task_incomplete(telemetry: dict) -> bool:
+    """Detect when the agent abandoned the task due to tool failure.
+
+    Returns True when ALL of these conditions hold:
+      1. Tools were called (call_count >= 1)
+      2. No tool provided usable data (tool_provided_data is False)
+      3. The agent acknowledged it could not complete the task
+         (uncertainty_acknowledged is True)
+
+    This combination means: the agent depended on tools, the tools
+    failed, and the agent gave up — reporting the failure rather than
+    completing the task. This is functionally a task failure, not
+    merely degraded quality.
+
+    Cases this does NOT catch (intentionally):
+      - tool_provided_data=False + uncertainty_acknowledged=False
+        → Agent may be hallucinating (stays degraded, different problem)
+      - tool_provided_data=True + low diversity
+        → Tools returned data but it was redundant (stays degraded)
+    """
+    tool_call_count = _get_field(telemetry, "tools.call_count")
+    tool_data = _get_field(telemetry, "grounding.tool_provided_data")
+    uncertainty = _get_field(telemetry, "grounding.uncertainty_acknowledged")
+
+    return (
+        tool_call_count is not None
+        and tool_call_count >= 1
+        and tool_data is False
+        and uncertainty is True
+    )
+
+
+# ---------------------------------------------------------------------------
 # Degradation indicators
 # ---------------------------------------------------------------------------
 
@@ -331,6 +367,19 @@ def classify_execution_quality(
             "summary": summary,
         }
 
+    # --- Failed: task incomplete (tools failed, agent gave up) ---
+    if telemetry and _is_task_incomplete(telemetry):
+        status = "failed"
+        summary = _build_quality_summary(
+            status, termination["mode"], domain_failures, indicators
+        )
+        return {
+            "status": status,
+            "termination": termination,
+            "indicators": indicators,
+            "summary": summary,
+        }
+
     # --- Degraded: output produced but quality concerns exist ---
     if indicators or (domain_failures and termination["mode"] != "normal"):
         status = "degraded"
@@ -391,6 +440,13 @@ def _build_quality_summary(
         elif termination_mode == "silent_exit":
             return (
                 f"Execution stopped without output. "
+                f"{len(domain_failures)} failure pattern(s) detected."
+            )
+        elif termination_mode == "normal":
+            # Task incomplete: agent produced output but admitted failure
+            return (
+                f"Task incomplete: tools failed and agent could not "
+                f"fulfill the request. "
                 f"{len(domain_failures)} failure pattern(s) detected."
             )
         return f"Execution failed. {len(domain_failures)} failure pattern(s) detected."
