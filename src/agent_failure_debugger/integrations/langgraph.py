@@ -230,6 +230,13 @@ def _build_feedback_message(
         if content:
             parts.append(f"Suggestion: {content}")
 
+    # Task incomplete: tools failed but may have recovered
+    if not failure_ids and status == "failed":
+        parts.append(
+            "The tool may have experienced a transient error that has since resolved. "
+            "Please call the tool again to retry the original request."
+        )
+
     # Pattern-specific guidance
     if "agent_tool_call_loop" in failure_ids:
         parts.append(
@@ -261,14 +268,14 @@ def _default_inject_feedback(state: dict, feedback_text: str) -> dict:
     where messages are stored under the "messages" key.
     """
     try:
-        from langchain_core.messages import SystemMessage
+        from langchain_core.messages import HumanMessage
     except ImportError:
         raise ImportError(
             "langchain-core is required for the LangGraph integration. "
             "Install with: pip install agent-failure-debugger[langchain]"
         )
 
-    return {"messages": [SystemMessage(content=feedback_text)]}
+    return {"messages": [HumanMessage(content=feedback_text)]}
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +365,13 @@ def create_health_check(
         retryable = failure_ids & RETRYABLE_PATTERNS
         structural = failure_ids & STRUCTURAL_PATTERNS
 
-        # Track retry count
-        retry_count = state.get(_HEALTH_CHECK_STATE_KEY, 0)
+        # Track retry count by counting previous feedback messages
+        retry_count = sum(
+            1 for m in messages
+            if getattr(m, 'type', None) == 'human'
+            and isinstance(getattr(m, 'content', ''), str)
+            and m.content.startswith('[Health Check]')
+        )
 
         if verbose:
             _print_health_check(status, failure_ids, indicators,
@@ -374,6 +386,11 @@ def create_health_check(
         elif status == "failed":
             if retryable and retry_count < max_retries:
                 should_retry = True
+            # Also retry task_incomplete (tools failed, no patterns matched)
+            elif not failure_ids and retry_count < max_retries:
+                tool_data = result.get("telemetry", {}).get("grounding", {}).get("tool_provided_data")
+                if tool_data is False:
+                    should_retry = True
 
         elif status == "degraded":
             if retry_on_degraded and retryable and retry_count < max_retries:
