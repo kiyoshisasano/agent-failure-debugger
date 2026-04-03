@@ -164,7 +164,7 @@ Not all failures benefit from retry. The 17 Atlas patterns are classified as ret
 
 ## CI integration (pytest)
 
-Use [pytest-agent-health](https://github.com/kiyoshisasano/pytest-agent-health) to catch silent agent failures in CI:
+Use [pytest-agent-health](https://github.com/kiyoshisasano/pytest-agent-health) to catch silent agent failures and regressions in CI:
 
 ```bash
 pip install pytest-agent-health
@@ -174,18 +174,28 @@ pip install pytest-agent-health
 def test_agent_completes_task(agent_health):
     raw_log = my_agent.run("What was Q3 revenue?")
     agent_health.check(raw_log, adapter="langchain")
-    # → FAIL if execution failed or degraded with risk indicators (strict)
-    # → WARN if minor concerns detected
+    # → FAIL if execution failed or regression detected
+    # → WARN if quality concerns detected
     # → PASS if healthy
 ```
 
 ```bash
-pytest --agent-health                          # default: degraded = WARN
-pytest --agent-health --agent-health-strict    # degraded + risk = FAIL
+# Establish baselines
+pytest --agent-health --agent-health-update-baseline
+
+# Detect regressions against baseline
+pytest --agent-health
+
+# Strict mode: degraded + risk = FAIL
+pytest --agent-health --agent-health-strict
+
+# Force FAIL on specific patterns
 pytest --agent-health --agent-health-fail-on=premature_termination
 ```
 
-CI detects failures. Production heals them with `create_health_check()`.
+The plugin automatically compares against previous CI runs. New failure patterns, status degradation, and new risk indicators trigger FAIL. Commit `.agent-health/` to git to share baselines across CI runs.
+
+CI detects failures and regressions. Production heals them with `create_health_check()`.
 
 ---
 
