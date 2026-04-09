@@ -253,13 +253,7 @@ See [Quick Start Guide](docs/quickstart.md) for more usage patterns including `w
 
 ## Common Mistakes
 
-| Problem | Cause | Fix |
-|---|---|---|
-| "0 failures detected" | Adapter got insufficient data | Provide complete trace with tool calls |
-| Wrong results | Input format doesn't match adapter | See [Adapter Formats](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/adapter_formats.md) |
-| Pattern doesn't fire | Adapter doesn't produce required fields | Check [Adapter Coverage](docs/limitations_faq.md#adapter-coverage) |
-
-**⚠ No error is raised for wrong inputs.** The system silently returns zero failures if the adapter cannot extract signals.
+**⚠ No error is raised for wrong inputs.** The system silently returns zero failures if the adapter cannot extract signals. See [Limitations & FAQ](docs/limitations_faq.md) for common causes and solutions.
 
 ## This Tool Cannot
 
@@ -275,171 +269,32 @@ See [Limitations & FAQ](docs/limitations_faq.md) for details.
 
 ### Execution quality
 
-Every `diagnose()` and `run_pipeline()` result includes execution quality assessment — this is what makes the tool useful on every run, not just when failures occur.
+Every `diagnose()` result includes execution quality: `healthy`, `degraded`, or `failed`. Degradation indicators (low alignment, weak grounding, redundant tool results) are surfaced before they become failures.
 
 ```python
 eq = result["summary"]["execution_quality"]
-print(eq["status"])              # "healthy" | "degraded" | "failed"
-print(eq["termination"]["mode"]) # "normal" | "silent_exit" | "error_exit" | "partial_exit" | "unknown"
-print(eq["indicators"])          # list of degradation concerns (empty if healthy)
-print(eq["summary"])             # one-line human-readable assessment
+print(eq["status"])       # "healthy" | "degraded" | "failed"
+print(eq["indicators"])   # list of degradation concerns (empty if healthy)
 ```
 
-- **healthy** — no significant issues detected
-- **degraded** — output may have been produced but quality indicators are weak (low alignment, weak grounding, redundant tool results, unmodeled failures)
-- **failed** — execution did not produce usable output (silent exit or error)
-
-Degradation indicators include: low alignment score (< 0.5), tools called but no usable data returned, high expansion ratio without uncertainty disclosure (> 3.0), low tool result diversity (< 0.5 across 2+ calls — tools returned identical results), low observation coverage, and unmodeled or conflicting failure signals.
-
-Execution quality uses existing telemetry and diagnosis results. No new matcher patterns are added.
-
 ### Multi-run analysis
-
-When the same prompt produces different results across runs, you need to know whether the agent is unstable and what causes the divergence.
 
 ```python
 from agent_failure_debugger import compare_runs, diff_runs
 
-# Step 1: Is the agent stable across runs?
-stability = compare_runs(all_run_results)
-print(stability["stability"]["root_cause_agreement"])  # 1.0 = fully stable
-print(stability["interpretation"])
-
-# Step 2: What separates success from failure?
-diff = diff_runs(success_runs, failure_runs)
-print(diff["hypothesis"])
-print(diff["failure_set_diff"]["failure_only"])  # patterns only in failures
-print(diff["causal_path_diff"])                  # where paths diverge
+stability = compare_runs(all_run_results)     # Is the agent stable?
+diff = diff_runs(success_runs, failure_runs)   # What separates success from failure?
 ```
 
-`compare_runs()` measures stability — whether the same task produces consistent diagnoses across runs. `diff_runs()` identifies divergence — what structural differences separate successful runs from failed ones. Together they answer "is this agent reliable, and if not, why does it sometimes fail?"
+For runnable examples, see [examples/multi_run_stability](examples/multi_run_stability/) and [examples/termination_divergence](examples/termination_divergence/).
 
-For runnable examples with expected output, see [examples/multi_run_stability](examples/multi_run_stability/) (compare_runs → diff_runs workflow) and [examples/termination_divergence](examples/termination_divergence/) (same root cause, different exit modes).
+### More
 
-### Enhanced explanation
+Full API documentation including enhanced explanation, individual pipeline steps, external evaluation, direct telemetry, and common mistakes: [Quick Start Guide](docs/quickstart.md).
 
-```python
-expl = result["explanation"]
-print(expl["context_summary"])     # what happened
-print(expl["interpretation"])      # why it happened
-print(expl["risk"]["level"])       # HIGH / MEDIUM / LOW
-print(expl["recommendation"])      # what to do
-print(expl["observation"])         # signal coverage info
-```
+Input/output format, auto-apply gate, fix safety, and automation guidance: [API Reference](docs/reference.md).
 
-When observation coverage is low (many signals were not observed), the risk level is automatically raised and the interpretation notes that the diagnosis may be incomplete.
-
-CLI: `python -m agent_failure_debugger.explain --enhanced debugger_output.json`
-
-### Individual steps
-
-```python
-from agent_failure_debugger.pipeline import run_diagnosis, run_fix
-
-diag = run_diagnosis(matcher_output)
-fix_result = run_fix(diag, use_learning=True, top_k=2)
-```
-
-### External evaluation
-
-```python
-def my_staging_test(bundle):
-    fixes = bundle["autofix"]["recommended_fixes"]
-    # apply fixes in your staging env
-    return {
-        "success": True,
-        "failure_count": 0,
-        "root": None,
-        "has_hard_regression": False,
-        "notes": "passed staging tests",
-    }
-
-result = run_pipeline(
-    matcher_output,
-    auto_apply=True,
-    evaluation_runner=my_staging_test,
-)
-```
-
-If `evaluation_runner` is not provided, the built-in counterfactual simulation is used. If the runner raises an exception, the pipeline falls back to `staged_review` deterministically.
-
-For real-world interpretation examples — including before/after fix effects — see [Applied Debugging Examples](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/applied_debugging_examples.md) and [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) in the Atlas repository.
-
----
-
-## Input Format
-
-A JSON array of failure results from the matcher. Each entry needs `failure_id`, `diagnosed`, and `confidence`:
-
-```json
-[
-  {
-    "failure_id": "premature_model_commitment",
-    "diagnosed": true,
-    "confidence": 0.7,
-    "signals": {
-      "ambiguity_without_clarification": true,
-      "assumption_persistence_after_correction": true
-    }
-  }
-]
-```
-
-The pipeline validates input at entry and rejects malformed data with clear error messages.
-
----
-
-## Output Format
-
-```json
-{
-  "root_candidates": ["premature_model_commitment"],
-  "root_ranking": [{"id": "premature_model_commitment", "score": 0.85}],
-  "failures": [
-    {"id": "premature_model_commitment", "confidence": 0.7},
-    {"id": "semantic_cache_intent_bleeding", "confidence": 0.7,
-     "caused_by": ["premature_model_commitment"]}
-  ],
-  "causal_paths": [
-    ["premature_model_commitment", "semantic_cache_intent_bleeding", "rag_retrieval_drift"]
-  ]
-}
-```
-
----
-
-## Auto-Apply Gate
-
-| Score | Mode | Behavior |
-|---|---|---|
-| >= 0.85 | `auto_apply` | Apply, evaluate, keep or rollback |
-| 0.65-0.85 | `staged_review` | Write to patches/, await human approval |
-| < 0.65 | `proposal_only` | Present fix proposal only |
-
-Hard blockers (force proposal_only regardless of score):
-- `safety != "high"`
-- `review_required == true`
-- `fix_type == "workflow_patch"`
-- Execution plan has conflicts or failed validation
-- `grounding_gap_not_acknowledged` signal active
-
-## Fix Safety
-
-Fixes are generated from predefined templates, not learned behavior. They are deterministic and reproducible, but not guaranteed to be correct — some fixes may introduce regressions in complex workflows.
-
-Safety mechanisms: the confidence gate prevents low-evidence fixes from auto-apply, hard blockers prevent unsafe categories of changes, the evaluation runner validates fixes before acceptance, and rollback is triggered automatically if evaluation fails.
-
-Always review or evaluate fixes before applying in production environments.
-
-## Automation Guidance
-
-| Environment | Recommended mode | Notes |
-|---|---|---|
-| Development | `auto_apply` | Iterate quickly, evaluate fixes automatically |
-| Staging | `staged_review` | Use evaluation_runner to validate before applying |
-| Production | `proposal_only` | Human approval required, avoid auto_apply |
-
-The debugger is designed for assisted decision-making, not fully autonomous system modification.
+For real-world interpretation examples: [Applied Debugging Examples](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/applied_debugging_examples.md) and [Operational Playbook](https://github.com/kiyoshisasano/llm-failure-atlas/blob/main/docs/operational_playbook.md) in the Atlas repository.
 
 ---
 
