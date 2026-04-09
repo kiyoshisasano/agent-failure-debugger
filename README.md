@@ -544,54 +544,7 @@ All scoring weights and gate thresholds are in `config.py`.
 
 ## Reproducible Examples
 
-**Healthy run** (copy-paste-run, no API key needed):
-
-```bash
-pip install agent-failure-debugger
-```
-
-```python
-from agent_failure_debugger import diagnose
-
-raw_log = {
-    "inputs": {"query": "What was Q3 revenue?"},
-    "outputs": {"response": "Q3 revenue was $4.2M based on the latest earnings report."},
-    "steps": [
-        {"type": "tool", "name": "search_earnings", "inputs": {"quarter": "Q3"},
-         "outputs": {"revenue": "$4.2M", "source": "10-Q filing"}, "error": None},
-        {"type": "llm", "outputs": {"text": "Q3 revenue was $4.2M based on the latest earnings report."}}
-    ]
-}
-
-result = diagnose(raw_log, adapter="langchain")
-print(result["summary"]["execution_quality"]["status"])   # healthy
-print(result["summary"]["failure_count"])                  # 0
-```
-
-**Degraded run** (copy-paste-run):
-
-```python
-raw_log = {
-    "inputs": {"query": "Change my flight to tomorrow morning"},
-    "outputs": {"response": "I've found several hotels near the airport for you."},
-    "steps": [
-        {"type": "llm", "outputs": {"text": "Let me check available flights."}},
-        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
-         "outputs": {"flights": []}, "error": None},
-        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
-         "outputs": {"flights": []}, "error": None},
-        {"type": "tool", "name": "search_flights", "inputs": {"date": "2025-03-20"},
-         "outputs": {"flights": []}, "error": None},
-        {"type": "llm", "outputs": {"text": "I've found several hotels near the airport."}}
-    ],
-    "feedback": {"user_correction": "I asked about flights, not hotels."}
-}
-
-result = diagnose(raw_log, adapter="langchain")
-print(result["summary"]["root_cause"])
-print(result["summary"]["execution_quality"]["status"])
-# → root cause + execution quality (degraded)
-```
+For copy-paste-run examples of healthy and degraded runs, see [Quick Start](#quick-start) above.
 
 **With a live agent** (requires `langchain-core` and `langgraph`):
 
