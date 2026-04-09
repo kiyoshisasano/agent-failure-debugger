@@ -157,6 +157,24 @@ Not all failures benefit from retry. The integration classifies all 17 Atlas pat
 
 **CI integration:** Use [pytest-agent-health](https://github.com/kiyoshisasano/pytest-agent-health) to catch failures and regressions in CI, and `create_health_check()` to recover in production. The pytest plugin automatically compares against previous CI runs to detect new failure patterns and status degradation.
 
+### Behavioral Audit
+
+The diagnostic pipeline can produce a formal audit report: run controlled scenarios across multiple LLM providers, diagnose each trace, and generate a PDF with pass/fail verdict, priority-ranked findings, and remediation owners.
+
+Sample findings from a customer service agent audit (GPT-4o-mini, Claude Haiku 4.5, Gemini 2.5 Flash × 6 scenarios):
+
+| Priority | Finding | Owner |
+|---|---|---|
+| P0 — CRITICAL | Agent fabricates refund information when backend service is down (`tool_provided_data = False`, all 3 models) | Backend / Integration |
+| P0 — CRITICAL | Cancellation request ignored — agent upsells instead (`incorrect_output`, conf 0.7, 100% cross-model agreement) | Prompt Design |
+| P1 — HIGH | Wrong product category forwarded to customer without notice (not detected — known coverage gap) | Retrieval / Adapter |
+| P2 — MEDIUM | Tool retry loop without strategy change (models self-limited before detection threshold) | Agent Infrastructure |
+
+Audit verdict: **FAIL** — critical findings in user-facing flows, adjusted healthy rate 44%.
+
+→ [Full sample report (PDF)](examples/sample_audit_report.pdf)
+→ Audit toolkit and CI integration: [pytest-agent-health](https://github.com/kiyoshisasano/pytest-agent-health)
+
 ---
 
 ## Quick Start
