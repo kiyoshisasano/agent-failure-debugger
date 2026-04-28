@@ -30,6 +30,53 @@ summary with execution behavior information.
 # Telemetry field extraction
 # ---------------------------------------------------------------------------
 
+def _compute_utilisation(telemetry: dict | None) -> dict | None:
+    """Aggregate chunk-utilisation proxy into a summary signal.
+
+    Reads `retrieval.retrieved_ids` and `retrieval.used_chunk_ids` from
+    adapter output. Returns None when either is absent (no retrieval
+    occurred, or the adapter does not yet emit the utilisation proxy).
+
+    The ratio is computed against the unique retrieved chunk IDs to
+    keep the denominator stable across duplicate retrievals.
+
+    Returns:
+        None — utilisation cannot be computed
+        dict — {
+            "ratio": float (0.0-1.0),
+            "used_count": int,
+            "retrieved_count": int,
+            "method": str (proxy method name from adapter),
+        }
+    """
+    if not telemetry:
+        return None
+    retrieval = telemetry.get("retrieval") or {}
+    retrieved_ids = retrieval.get("retrieved_ids")
+    used_chunk_ids = retrieval.get("used_chunk_ids")
+    method = retrieval.get("utilisation_method")
+
+    if not retrieved_ids:
+        return None
+    # used_chunk_ids may legitimately be [] / None when nothing met the
+    # overlap threshold. Distinguish None (proxy not run) from 0 (proxy ran).
+    if used_chunk_ids is None and method is None:
+        return None
+
+    unique_retrieved = set(retrieved_ids)
+    used_set = set(used_chunk_ids or [])
+    retrieved_count = len(unique_retrieved)
+    used_count = len(used_set & unique_retrieved)
+    ratio = (used_count / retrieved_count) if retrieved_count else 0.0
+
+    return {
+        "ratio": round(ratio, 3),
+        "used_count": used_count,
+        "retrieved_count": retrieved_count,
+        "method": method or "text_overlap_proxy",
+    }
+
+
 def _get_field(data: dict, dotted_path: str):
     """Traverse a dotted path into a nested dict. Return None if missing."""
     parts = dotted_path.split(".")
@@ -337,6 +384,10 @@ def classify_execution_quality(
     # Step 1: Termination classification
     termination = classify_termination(diagnosis, telemetry)
 
+    # Utilisation summary (chunk-level proxy, available when retrieval
+    # occurred and the adapter emitted used_chunk_ids).
+    utilisation = _compute_utilisation(telemetry)
+
     # Step 2: Collect degradation indicators
     indicators = _collect_degradation_indicators(
         diagnosis, telemetry, diagnosis_context
@@ -365,6 +416,7 @@ def classify_execution_quality(
             "termination": termination,
             "indicators": indicators,
             "summary": summary,
+            "utilisation": utilisation,
         }
 
     # --- Failed: task incomplete (tools failed, agent gave up) ---
@@ -378,6 +430,7 @@ def classify_execution_quality(
             "termination": termination,
             "indicators": indicators,
             "summary": summary,
+            "utilisation": utilisation,
         }
 
     # --- Degraded: output produced but quality concerns exist ---
@@ -391,6 +444,7 @@ def classify_execution_quality(
             "termination": termination,
             "indicators": indicators,
             "summary": summary,
+            "utilisation": utilisation,
         }
 
     # --- Degraded: domain failures detected even with normal termination ---
@@ -404,6 +458,7 @@ def classify_execution_quality(
             "termination": termination,
             "indicators": indicators,
             "summary": summary,
+            "utilisation": utilisation,
         }
 
     # --- Healthy: no domain failures, no degradation indicators ---
@@ -416,6 +471,7 @@ def classify_execution_quality(
         "termination": termination,
         "indicators": indicators,
         "summary": summary,
+        "utilisation": utilisation,
     }
 
 
